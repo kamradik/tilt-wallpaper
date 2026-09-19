@@ -1,3 +1,5 @@
+> **Новая бета Solo 2.0:** пять эффектов, обновлённый интерфейс и переработанный sensor/render pipeline. [Скачать 2.0-beta1](https://github.com/kamradik/tilt-wallpaper/releases/tag/v2.0-beta1) · [Изменения, ограничения и проверка POCO](docs/RELEASE_2.0-beta1.md). Автоглубина приближённая; исправление плавности на физическом POCO ещё не подтверждено. Стабильный релиз ниже — 1.1.
+
 <div align="center">
   <img src="app/src/main/res/drawable-nodpi/author_avatar.jpg" width="112" height="112" alt="Аватарка Kamradik">
   <h1>Tilt — свои обои</h1>

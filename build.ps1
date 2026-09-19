@@ -1,4 +1,4 @@
-param([string]$Jdk = '', [string]$Sdk = '')
+param([string]$Jdk = '', [string]$Sdk = '', [switch]$DebugBuild)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 if (!$Jdk) { $Jdk = (Get-ChildItem -LiteralPath (Join-Path $root '.tools/jdk') -Directory | Select-Object -First 1).FullName }
@@ -16,6 +16,7 @@ try {
     & (Join-Path $bt 'aapt2.exe') compile --dir app/src/main/res -o build/resources.zip
     Check
     $manifest = [IO.File]::ReadAllText((Join-Path $root 'app/src/main/AndroidManifest.xml')).Replace('<manifest ', '<manifest package="dev.solotilt.personal" ')
+    if ($DebugBuild) { $manifest = $manifest.Replace('<application ', '<application android:debuggable="true" ') }
     [IO.File]::WriteAllText((Join-Path $root 'build/AndroidManifest.xml'),$manifest,[Text.UTF8Encoding]::new($false))
     & (Join-Path $bt 'aapt2.exe') link -o build/base.apk -I $android --manifest build/AndroidManifest.xml --java build/generated -A app/src/main/assets build/resources.zip
     Check
