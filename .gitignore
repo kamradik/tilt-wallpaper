@@ -1,0 +1,16 @@
+.tools/
+build/
+app/build/
+dist/
+analysis/
+upstream/
+*.jks
+*.keystore
+*.p12
+*.apk
+*.idsig
+.gradle/
+.idea/
+local.properties
+node_modules/
+package-lock.json
