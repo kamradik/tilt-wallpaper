@@ -36,9 +36,20 @@ final class ImageStore {
         }
         return preset(prefs(c).getInt("preset",0));
     }
-    static Bitmap preset(int index){
+    static boolean hasCustom(Context c){return file(c).getBaseFile().exists();}
+    /** Small copy of the saved photo for the picker tile; null when none is saved. */
+    static Bitmap thumbnail(Context c,int side)throws IOException{
+        if(!hasCustom(c))return null;
+        synchronized(LOCK){return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file(c).getBaseFile()),(decoder,info,s)->{
+            int w=info.getSize().getWidth(),h=info.getSize().getHeight();float scale=Math.min(1,side/(float)Math.min(w,h));
+            decoder.setTargetSize(Math.max(1,Math.round(w*scale)),Math.max(1,Math.round(h*scale)));decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+        });}
+    }
+    static Bitmap preset(int index){return preset(index,1);}
+    /** Draws the 720x1560 preset at the given scale, so thumbnails never allocate the full-size bitmap. */
+    static Bitmap preset(int index,float scale){
         int w=720,h=1560;
-        Bitmap b=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);Paint p=new Paint(3);
+        Bitmap b=Bitmap.createBitmap(Math.max(1,Math.round(w*scale)),Math.max(1,Math.round(h*scale)),Bitmap.Config.ARGB_8888);Canvas c=new Canvas(b);c.scale(scale,scale);Paint p=new Paint(3);
         int[][] palettes={{0xff260b27,0xffff6f93,0xffffddd5},{0xff07163a,0xff377dcb,0xff7ff1e0},{0xff4b0c0a,0xffff6427,0xffffd29c}};
         int[] colors=palettes[Math.floorMod(index,3)];
         p.setShader(new LinearGradient(0,0,w,h,colors,null,Shader.TileMode.CLAMP));c.drawRect(0,0,w,h,p);
