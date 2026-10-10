@@ -80,23 +80,23 @@
 
 ## Сборка из исходников
 
-Проверенный путь — **Windows + PowerShell 5.1 или 7 + JDK 17 + Android SDK 36**, без зависимости от Gradle для самой сборки. Нужны SDK Platform 36 и Build Tools 36.0.0; скрипт выбирает самую новую версию Build Tools по `source.properties`, а minSdk, targetSdk и версию берёт из `app/build.gradle`.
+Сборка — **Gradle**: wrapper 8.14.3, Android Gradle Plugin 8.13.0, JDK 17, compileSdk 36. Подходят и Android Studio, и командная строка:
 
 ```powershell
 git clone https://github.com/kamradik/tilt-wallpaper.git
 cd tilt-wallpaper
-./build.ps1 -Jdk 'C:/path/to/jdk-17' -Sdk 'C:/path/to/Android/Sdk'
+./gradlew testDebugUnitTest assembleDebug
 ```
 
-Скрипт компилирует ресурсы и Java, запускает математические тесты, создаёт DEX, выравнивает и подписывает APK, проверяет подпись. Результат: `dist/Tilt-Personal.apk`.
+Путь к Android SDK задаётся в `local.properties` (`sdk.dir=...`) или переменной `ANDROID_HOME`. Результат: `app/build/outputs/apk/debug/app-debug.apk`; релизная сборка — `./gradlew assembleRelease`.
 
-Для локальной сборки создаётся ключ разработки `.tools/personal-debug.jks`. Ключ опубликованного APK в репозиторий **не входит**. Самостоятельно подписанная сборка не обновит релиз с другой подписью поверх установленного приложения. Сохрани собственный ключ для последующих обновлений своих сборок.
+Если существует `.tools/personal-debug.jks`, debug- и release-сборки подписываются им, чтобы обновлять уже установленную копию. Другой ключ задаётся свойствами `tilt.keystore`, `tilt.storePassword`, `tilt.keyAlias` и `tilt.keyPassword` в `~/.gradle/gradle.properties`. Ключ опубликованного APK в репозиторий **не входит**; сборка с другой подписью не встанет поверх установленного приложения.
 
-Есть Gradle-конфигурации для Android Studio: AGP 8.13.2, JDK 17, compileSdk 36. Этот альтернативный путь сборки отдельно не проверялся; Gradle wrapper не включён.
+Windows с кириллицей в пути: `gradle.properties` отключает проверку пути плагина Android, а `gradlew`/`gradlew.bat` переносят служебный сокет Java в `C:\Users\Public` — во временной папке с кириллицей или коротким именем `~` он не создаётся.
 
 ### Тесты
 
-`build.ps1` запускает `tests/FoldMathTest.java`: нейтральное положение, эталонная проекция, симметрия, ориентация дисплея, положение экраном вниз, неверные входные данные и диапазон углов.
+`./gradlew testDebugUnitTest` запускает JUnit-тесты из `app/src/test`. `FoldMathTest` проверяет геометрию и датчик: нейтральное положение, эталонную проекцию, симметрию, ориентацию дисплея, положение экраном вниз, неверные данные и диапазон углов. `CoreTest` проверяет настройки: повреждённый и будущий формат, границы значений, сохранение и сброс, потокобезопасную передачу данных датчика.
 
 Дополнительный браузерный тест требует Node.js, Playwright и Chrome на Windows:
 
@@ -124,7 +124,6 @@ app/src/main/java/dev/solotilt/personal/
   ImageStore.java        Импорт, хранение и процедурные образцы
 app/src/main/assets/     GLSL-шейдеры и лицензия оптической модели
 app/src/main/res/        UI-ресурсы, аватарка и музыка
-build.ps1               Проверенный сценарий сборки
 REVERSE_ENGINEERING_RU.md Технический разбор
 THIRD_PARTY_NOTICES.md   Источники и сведения о сторонних материалах
 ```

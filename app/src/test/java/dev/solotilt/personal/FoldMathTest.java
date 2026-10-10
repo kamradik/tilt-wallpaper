@@ -1,7 +1,10 @@
-import dev.solotilt.personal.FoldMath;
+package dev.solotilt.personal;
+
+import org.junit.Test;
+
 public class FoldMathTest {
     static void near(float a,float b){if(Math.abs(a-b)>0.0001f)throw new AssertionError(a+" != "+b);}
-    public static void main(String[] args){
+    @Test public void projectionGravityAndAngleSweep(){
         float[] p=FoldMath.projection(0,0,72,.45f);near(p[0],1);near(p[4],1);near(p[8],1);near(p[14],0);
         float[] a=FoldMath.projection(60,20,72,.45f),b=FoldMath.projection(-60,-20,72,.45f);
         near(a[0],b[0]);near(a[2],-b[2]);near(a[6],-b[6]);near(a[8],b[8]);near(a[12],-b[12]);near(a[13],-b[13]);near(a[14],b[14]);
@@ -15,6 +18,5 @@ public class FoldMathTest {
         if(FoldMath.gravity(Float.NaN,0,0,0)!=null)throw new AssertionError("NaN accepted");
         for(int x=-120;x<=120;x++)for(int y=-120;y<=120;y+=20){p=FoldMath.projection(x,y,72,.45f);for(float f:p)if(!Float.isFinite(f))throw new AssertionError("Nonfinite");if(p[8]-.5f*Math.abs(p[6])<=0)throw new AssertionError("Invalid ray depth");}
         boolean caught=false;try{FoldMath.projection(0,0,0,1);}catch(IllegalArgumentException e){caught=true;}if(!caught)throw new AssertionError("Invalid dimensions accepted");
-        System.out.println("PASS: identity, reference projection, symmetry, orientation, inverted pose, invalid input, complete angle sweep");
     }
 }

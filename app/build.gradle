@@ -1,7 +1,40 @@
 plugins { id 'com.android.application' }
+
+// Local key so builds update an installed copy; the published release key never enters the repository.
+def keystore = rootProject.file(findProperty('tilt.keystore') ?: '.tools/personal-debug.jks')
+
 android {
     namespace 'dev.solotilt.personal'
     compileSdk 36
-    defaultConfig { applicationId 'dev.solotilt.personal'; minSdk 30; targetSdk 36; versionCode 3; versionName '2.0-beta1' }
+    defaultConfig {
+        applicationId 'dev.solotilt.personal'
+        minSdk 30
+        targetSdk 36
+        versionCode 4
+        versionName '2.0-beta2'
+    }
+    signingConfigs {
+        local {
+            storeFile keystore
+            storePassword findProperty('tilt.storePassword') ?: 'android'
+            keyAlias findProperty('tilt.keyAlias') ?: 'personal'
+            keyPassword findProperty('tilt.keyPassword') ?: 'android'
+        }
+    }
+    buildTypes {
+        debug { if (keystore.exists()) signingConfig signingConfigs.local }
+        release {
+            minifyEnabled false
+            if (keystore.exists()) signingConfig signingConfigs.local
+        }
+    }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    testOptions { unitTests.returnDefaultValues = true }
+    lint { abortOnError false }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    // Android supplies org.json at runtime; host-side tests need a real implementation.
+    testImplementation 'org.json:json:20250517'
 }
