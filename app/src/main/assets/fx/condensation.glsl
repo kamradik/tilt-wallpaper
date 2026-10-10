@@ -19,7 +19,7 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     vec3 frosted=steamed*(0.96+0.04*rnd.y)+vec3(dropSpec*0.6*params.x);
     
     // Full-screen continuous wipe mask with organic condensation healing
-    float rawClear=texture(u_wipeMask,coords(uv)).r;
+    float rawClear=texture(u_wipeMask,uv).r;
     
     // Micro-organic condensation texture pattern
     vec2 frostCoord=uv*60.0;

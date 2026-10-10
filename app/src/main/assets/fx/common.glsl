@@ -4,7 +4,7 @@ precision highp float;
 // so each effect compiles as its own small program instead of a branch of one uber-shader.
 uniform sampler2D u_image;
 uniform sampler2D u_depth;
-uniform sampler2D u_wipeMask; // condensation: 64x128 coverage cleared by the finger, decaying back
+uniform sampler2D u_wipeMask; // condensation: 64x128 screen-space wipe coverage, decaying back to fog
 uniform vec2 u_imageSize;
 uniform vec2 u_coverScale;
 uniform vec2 u_crop;

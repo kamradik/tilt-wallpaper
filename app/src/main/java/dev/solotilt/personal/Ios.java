@@ -95,7 +95,7 @@ final class Ios {
 
     /** Line icons in the spirit of SF Symbols, drawn on a unit grid. */
     static final class Glyph extends Drawable {
-        static final int PLUS=0,BACK=1,LINK=2,PLAY=3,PAUSE=4,PHOTO=5,INFO=6;
+        static final int PLUS=0,BACK=1,LINK=2,PLAY=3,PAUSE=4,PHOTO=5,INFO=6,SEARCH=7,HEART=8,HEART_FILL=9,GEAR=10,CHEVRON=11,CLOSE=12,VIDEO=13;
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);final Path path=new Path();final int kind,size;
         Glyph(Context c,int kind,int color,float sizeDp){this.kind=kind;size=dp(c,sizeDp);paint.setColor(color);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);setBounds(0,0,size,size);}
         @Override public int getIntrinsicWidth(){return size;}
@@ -111,6 +111,12 @@ final class Ios {
                 case PAUSE->{path.addRoundRect(.25f,.2f,.41f,.8f,.05f,.05f,Path.Direction.CW);path.addRoundRect(.59f,.2f,.75f,.8f,.05f,.05f,Path.Direction.CW);paint.setStyle(Paint.Style.FILL);}
                 case PHOTO->{path.addRoundRect(.12f,.2f,.88f,.8f,.12f,.12f,Path.Direction.CW);path.moveTo(.2f,.7f);path.lineTo(.42f,.48f);path.lineTo(.58f,.62f);path.lineTo(.68f,.54f);path.lineTo(.82f,.68f);path.addCircle(.66f,.36f,.06f,Path.Direction.CW);paint.setStrokeWidth(.075f);}
                 case INFO->{path.moveTo(.5f,.46f);path.lineTo(.5f,.76f);c.drawCircle(.5f,.27f,.075f,fillPaint());paint.setStrokeWidth(.12f);}
+                case SEARCH->{path.addCircle(.44f,.44f,.24f,Path.Direction.CW);path.moveTo(.62f,.62f);path.lineTo(.82f,.82f);paint.setStrokeWidth(.1f);}
+                case HEART,HEART_FILL->{path.moveTo(.5f,.82f);path.cubicTo(.08f,.56f,.12f,.18f,.34f,.2f);path.cubicTo(.43f,.2f,.48f,.27f,.5f,.32f);path.cubicTo(.52f,.27f,.57f,.2f,.66f,.2f);path.cubicTo(.88f,.18f,.92f,.56f,.5f,.82f);path.close();paint.setStrokeWidth(.08f);if(kind==HEART_FILL)paint.setStyle(Paint.Style.FILL_AND_STROKE);}
+                case GEAR->{for(int i=0;i<8;i++){double t=i*Math.PI/4;path.moveTo(.5f+(float)Math.cos(t)*.3f,.5f+(float)Math.sin(t)*.3f);path.lineTo(.5f+(float)Math.cos(t)*.4f,.5f+(float)Math.sin(t)*.4f);}path.addCircle(.5f,.5f,.25f,Path.Direction.CW);path.addCircle(.5f,.5f,.09f,Path.Direction.CW);paint.setStrokeWidth(.09f);}
+                case CHEVRON->{path.moveTo(.38f,.2f);path.lineTo(.66f,.5f);path.lineTo(.38f,.8f);paint.setStrokeWidth(.11f);}
+                case CLOSE->{path.moveTo(.28f,.28f);path.lineTo(.72f,.72f);path.moveTo(.72f,.28f);path.lineTo(.28f,.72f);paint.setStrokeWidth(.1f);}
+                case VIDEO->{path.addRoundRect(.1f,.26f,.66f,.74f,.1f,.1f,Path.Direction.CW);path.moveTo(.68f,.44f);path.lineTo(.9f,.32f);path.lineTo(.9f,.68f);path.lineTo(.68f,.56f);paint.setStrokeWidth(.075f);}
             }
             c.drawPath(path,paint);c.restore();
         }
@@ -211,5 +217,77 @@ final class Ios {
         dialog.setOnShowListener(x->{card.setScaleX(1.15f);card.setScaleY(1.15f);card.setAlpha(0);spring(card,SMOOTH).scaleX(1).scaleY(1).alpha(1);});
         dialog.show();
     }
+    /** UISegmentedControl: tinted track, a white thumb that springs between segments. */
+    static final class Segmented extends View {
+        interface Listener{void selected(int index);}
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG),text=new Paint(Paint.ANTI_ALIAS_FLAG);final RectF r=new RectF();
+        String[] items;int selected;float position;Listener listener;ValueAnimator move;
+        Segmented(Context c,String... items){
+            super(c);this.items=items;setBackground(new Shape(0x3d767680,-1));setClickable(true);setFocusable(true);
+            text.setTypeface(font(SEMIBOLD));text.setTextSize(px(c,13));text.setTextAlign(Paint.Align.CENTER);
+        }
+        @Override protected void onMeasure(int w,int h){setMeasuredDimension(MeasureSpec.getSize(w),dp(getContext(),34));}
+        void select(int index,boolean animate){
+            if(index<0||index>=items.length)return;selected=index;if(move!=null)move.cancel();
+            if(!animate){position=index;invalidate();return;}
+            move=ValueAnimator.ofFloat(position,index);move.setInterpolator(SMOOTH);move.setDuration(SMOOTH.duration);move.addUpdateListener(a->{position=(float)a.getAnimatedValue();invalidate();});move.start();
+        }
+        @Override public boolean onTouchEvent(MotionEvent e){
+            if(e.getActionMasked()==MotionEvent.ACTION_UP){int i=(int)Math.max(0,Math.min(items.length-1,e.getX()/getWidth()*items.length));
+                if(i!=selected){select(i,true);performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);if(listener!=null)listener.selected(i);}performClick();}
+            return true;
+        }
+        @Override protected void onDraw(Canvas c){
+            float d=px(getContext(),1),seg=getWidth()/(float)items.length;
+            r.set(position*seg+2*d,2*d,(position+1)*seg-2*d,getHeight()-2*d);paint.setColor(0xfff5f5f7);paint.setShadowLayer(3*d,0,d,0x33000000);c.drawRoundRect(r,r.height()/2,r.height()/2,paint);
+            for(int i=0;i<items.length;i++){float near=Math.max(0,1-Math.abs(position-i));text.setColor(mix(LABEL,0xff0b0b0d,near));
+                c.drawText(items[i],seg*i+seg/2,getHeight()/2f-(text.descent()+text.ascent())/2,text);}
+        }
+        @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setText(items[selected]);}
+    }
+    /** UISearchBar: rounded fill, magnifier, clear button. Fills the given container and returns its field. */
+    static EditText searchField(Context c,String hint,LinearLayout container){
+        container.setGravity(Gravity.CENTER_VERTICAL);container.setBackground(new Shape(0x3d767680,px(c,12)));container.setPadding(dp(c,10),0,dp(c,6),0);
+        ImageView icon=new ImageView(c);icon.setImageDrawable(new Glyph(c,Glyph.SEARCH,SECONDARY,18));container.addView(icon);
+        EditText field=new EditText(c);field.setHint(hint);field.setHintTextColor(SECONDARY);field.setTextColor(LABEL);field.setTextSize(TypedValue.COMPLEX_UNIT_SP,17);field.setTypeface(font(REGULAR));
+        field.setSingleLine(true);field.setBackground(null);field.setPadding(dp(c,8),0,dp(c,8),0);field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);container.addView(field,new LinearLayout.LayoutParams(0,-1,1));
+        ImageView clear=new ImageView(c);clear.setImageDrawable(new Glyph(c,Glyph.CLOSE,SECONDARY,16));clear.setContentDescription("Очистить");clear.setVisibility(View.GONE);clear.setPadding(dp(c,6),0,dp(c,6),0);container.addView(clear,new LinearLayout.LayoutParams(-2,-1));
+        clear.setOnClickListener(v->field.setText(""));
+        field.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int n){}public void onTextChanged(CharSequence s,int a,int b,int n){clear.setVisibility(s.length()>0?View.VISIBLE:View.GONE);}public void afterTextChanged(android.text.Editable s){}});
+        return field;
+    }
+    /** Filter chip; a selected chip is filled white like the iOS 26 capsules. */
+    static TextView chip(Context c,String title){
+        TextView t=text(c,title,15,MEDIUM,LABEL);t.setGravity(Gravity.CENTER);t.setPadding(dp(c,14),0,dp(c,14),0);t.setBackground(glass(c,-1));t.setClickable(true);t.setFocusable(true);return pressable(t);
+    }
+    static void chipSelected(TextView chip,boolean on){chip.setSelected(on);chip.setTextColor(on?0xff0b0b0d:LABEL);chip.setBackground(on?new Shape(0xfff5f5f7,-1):glass(chip.getContext(),-1));}
+    /** Inset grouped section of a UITableView: caption above, a rounded card, hairlines between rows. */
+    static LinearLayout group(Context c,LinearLayout parent,String caption){
+        if(caption!=null){TextView t=text(c,caption.toUpperCase(java.util.Locale.ROOT),13,REGULAR,SECONDARY);t.setPadding(dp(c,16),dp(c,22),dp(c,16),dp(c,7));parent.addView(t);}
+        LinearLayout card=new LinearLayout(c);card.setOrientation(LinearLayout.VERTICAL);card.setBackground(new Shape(0xff1c1c1e,px(c,14)));card.setOutlineProvider(ViewOutlineProvider.BACKGROUND);card.setClipToOutline(true);
+        parent.addView(card,new LinearLayout.LayoutParams(-1,-2));return card;
+    }
+    static void footer(Context c,LinearLayout parent,String note){TextView t=text(c,note,13,REGULAR,SECONDARY);t.setPadding(dp(c,16),dp(c,7),dp(c,16),0);parent.addView(t);}
+    static void separate(Context c,LinearLayout card){
+        if(card.getChildCount()==0)return;View line=hairline(c);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,Math.max(1,dp(c,.5f)));lp.leftMargin=dp(c,16);card.addView(line,lp);
+    }
+    /** A table row: title on the left, an accessory (switch, value, control) on the right. */
+    static LinearLayout row(Context c,LinearLayout card,String title,View accessory){
+        separate(c,card);
+        LinearLayout row=new LinearLayout(c);row.setGravity(Gravity.CENTER_VERTICAL);row.setMinimumHeight(dp(c,50));row.setPadding(dp(c,16),dp(c,6),dp(c,14),dp(c,6));
+        if(title!=null)row.addView(text(c,title,17,REGULAR,LABEL),new LinearLayout.LayoutParams(0,-2,1));
+        if(accessory!=null)row.addView(accessory,new LinearLayout.LayoutParams(title==null?0:-2,-2,title==null?1:0));
+        card.addView(row);return row;
+    }
+    /** Labelled 0..1 slider row with a percentage readout. */
+    static Slider unitSlider(Context c,LinearLayout card,String title,float value,Slider.Listener listener){
+        separate(c,card);
+        LinearLayout box=new LinearLayout(c);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(c,16),dp(c,10),dp(c,14),dp(c,2));card.addView(box);
+        LinearLayout head=new LinearLayout(c);box.addView(head);head.addView(text(c,title,15,REGULAR,LABEL),new LinearLayout.LayoutParams(0,-2,1));
+        TextView number=text(c,Math.round(value*100)+"%",15,REGULAR,SECONDARY);number.setFontFeatureSettings("tnum");head.addView(number);
+        Slider s=new Slider(c,0,100);s.value=Math.round(value*100);s.setContentDescription(title);box.addView(s);
+        s.listener=v->{number.setText(v+"%");listener.changed(v);};return s;
+    }
+
     private Ios(){}
 }

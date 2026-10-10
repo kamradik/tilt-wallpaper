@@ -1,5 +1,6 @@
 package dev.solotilt.personal;
 
+import android.animation.LayoutTransition;
 import android.app.*;
 import android.content.*;
 import android.graphics.*;
@@ -8,125 +9,337 @@ import android.net.Uri;
 import android.os.*;
 import android.view.*;
 import android.widget.*;
+import java.util.*;
 import java.util.concurrent.*;
+import static dev.solotilt.personal.Ios.*;
 
+/** The hub: live preview of the selected screen, the effect sheet, and the searchable catalog. */
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
-    RenderLoop renderer;Motion motion;WallpaperConfig config;SurfaceView preview;
-    LinearLayout panel,parameterBox;TextView description,status,debug;Button choose,apply;ProgressBar progress;
-    final View[] effectCards=new View[5];final ImageView[] effectImages=new ImageView[5];
-    final Handler main=new Handler(Looper.getMainLooper());final ExecutorService imports=Executors.newSingleThreadExecutor();
-    boolean resumed,ready,importing,bright,building;volatile boolean manual;int loadGeneration;
-    Bitmap thumbnail,backdrop;float touchX,touchY;long lastTouch;
+    static final int PICK_PHOTO=10,PICK_DEPTH=11;
+    static final String[] PRESETS_RU={"Розовые ленты","Синие ленты","Янтарные ленты"},PRESETS_EN={"Rose ribbons","Blue ribbons","Amber ribbons"};
+    RenderLoop renderer;Motion motion;WallpaperConfig config;Thumbnails thumbnails;
+    String slot=WallpaperConfig.HOME,previewKey;boolean resumed,ready,importing,hidden,dragging;float downX,downY,dragTiltX,dragTiltY;long labelTime;
+    final Map<String,Bitmap> previews=new HashMap<>();
+    final Handler main=new Handler(Looper.getMainLooper());final ExecutorService io=Executors.newSingleThreadExecutor();
+    FrameLayout root,catalog;LinearLayout header,sheetBody,strip,params,editing,lockCard,frame,catalogGrid;ScrollView sheet;Segmented screens;
+    TextView angle,effectTitle,effectAbout,status,choose,install;ImageView heart;View dot;EditText search;
+    final Tile[] tiles=new Tile[4];final List<TextView> chips=new ArrayList<>();int filter=-1; // -1 all, -2 favorites, else a category
     String tr(String ru,String en){return config.en()?en:ru;}
-    int dp(float v){return Math.round(v*getResources().getDisplayMetrics().density);}
-    TextView text(String value,int size,int color){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(color);return v;}
-    LinearLayout.LayoutParams row(int height,int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,height<0?height:dp(height));p.topMargin=dp(top);return p;}
-    void glass(View v,int radius,boolean primary){v.setBackground(new GlassDrawable(v,backdrop,dp(radius),primary,bright));v.setElevation(dp(primary?3:6));}
-    Button button(String title,boolean primary){Button b=new Button(this);b.setText(title);b.setAllCaps(false);b.setTextSize(14);b.setTypeface(null,1);b.setTextColor(primary?0xff172027:0xfff2f4f6);b.setMinimumHeight(dp(48));glass(b,26,primary);return b;}
+    int dp(float n){return Ios.dp(this,n);}
+    WallpaperConfig.Profile profile(){return config.profile(slot);}
+    /** The lock tab edits its own profile only once the lock screen has its own wallpaper. */
+    boolean editable(){return WallpaperConfig.HOME.equals(slot)||config.separateLock;}
+    String mediaSlot(){return config.separateLock&&WallpaperConfig.LOCK.equals(slot)?WallpaperConfig.LOCK:WallpaperConfig.HOME;}
+
     @Override public void onCreate(Bundle state){
         super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);config=WallpaperConfig.load(this);
-        renderer=new RenderLoop(this,code->runOnUiThread(()->showError(code)));
-        motion=new Motion(this,getDisplay(),(x,y,t)->{if(!manual)renderer.tilt(x,y,t);});renderer.sensorInfo(motion.description());
-        buildUi();loadThumbnail();
+        if(state!=null)slot=state.getString("slot",slot);
+        renderer=new RenderLoop(this,code->runOnUiThread(()->showError(code)));renderer.mode(WallpaperConfig.LOCK.equals(slot)?RenderLoop.SHOW_LOCK:RenderLoop.SHOW_HOME);
+        motion=new Motion(this,getDisplay(),(x,y,t)->{if(dragging)return;renderer.tilt(x,y,t);if(SystemClock.uptimeMillis()-labelTime>150){labelTime=SystemClock.uptimeMillis();runOnUiThread(()->angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f°","Tilt %.0f°"),Math.hypot(x,y))));}});
+        renderer.sensorInfo(motion.description());thumbnails=new Thumbnails(this);
+        build(state==null);
     }
-    void buildUi(){
-        building=true;
-        FrameLayout root=new FrameLayout(this);root.setBackgroundColor(0xff10151a);
-        preview=new SurfaceView(this);root.addView(preview,new FrameLayout.LayoutParams(-1,-1));preview.getHolder().addCallback(this);
-        View shade=new View(this);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x95101920,0x00101920,0x0a101920,0xc0101920}));root.addView(shade,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout overlay=new LinearLayout(this);overlay.setOrientation(1);overlay.setPadding(dp(20),dp(16),dp(20),dp(14));root.addView(overlay,new FrameLayout.LayoutParams(-1,-1));
-        overlay.setOnApplyWindowInsetsListener((v,insets)->{Insets i=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(dp(20)+i.left,dp(12)+i.top,dp(20)+i.right,dp(12)+i.bottom);return insets;});
-        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);overlay.addView(top,row(52,0));
-        TextView logo=text("Solo",34,Color.WHITE);logo.setTypeface(android.graphics.Typeface.create("sans-serif-medium",0));logo.setLetterSpacing(-.035f);top.addView(logo,new LinearLayout.LayoutParams(0,-2,1));
-        Button author=button("K",false);author.setContentDescription(tr("Об авторе Kamradik","About Kamradik"));top.addView(author,new LinearLayout.LayoutParams(dp(48),dp(48)));author.setOnClickListener(v->startActivity(new Intent(this,AuthorActivity.class)));
-        Button settings=button("☷",false);settings.setTextSize(23);settings.setContentDescription(tr("Настройки","Settings"));LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(dp(48),dp(48));sp.leftMargin=dp(10);top.addView(settings,sp);settings.setOnClickListener(v->advanced());
-        TextView subtitle=text(tr("Твоя фотография. Живое ощущение.","Your photo. A living feeling."),13,0xffe3e7e9);subtitle.setPadding(dp(2),dp(6),0,0);overlay.addView(subtitle);
-        View hero=new View(this);overlay.addView(hero,new LinearLayout.LayoutParams(-1,0,1));hero.setContentDescription(tr("Интерактивный предпросмотр. Наклони телефон или проведи пальцем.","Interactive preview. Tilt your phone or swipe."));
-        hero.setOnTouchListener((v,event)->{
-            if(event.getActionMasked()==MotionEvent.ACTION_DOWN||event.getActionMasked()==MotionEvent.ACTION_MOVE){
-                long now=SystemClock.uptimeMillis();if(now-lastTouch>=16){renderer.touch(event.getRawX()/Math.max(1,root.getWidth()),event.getRawY()/Math.max(1,root.getHeight()));lastTouch=now;}
-                return true;
-            }if(event.getActionMasked()==MotionEvent.ACTION_UP){v.performClick();return true;}return true;
-        });hero.setOnClickListener(v->{});
-        ScrollView sheet=new ScrollView(this);sheet.setFillViewport(false);sheet.setVerticalScrollBarEnabled(false);
-        int available=getResources().getConfiguration().screenHeightDp;overlay.addView(sheet,new LinearLayout.LayoutParams(-1,dp(Math.min(430,Math.max(320,available-230)))));
-        panel=new LinearLayout(this);panel.setOrientation(1);panel.setPadding(dp(14),dp(14),dp(14),dp(14));glass(panel,30,false);sheet.addView(panel,new ScrollView.LayoutParams(-1,-2));
-        HorizontalScrollView carousel=new HorizontalScrollView(this);carousel.setHorizontalScrollBarEnabled(false);carousel.setClipToPadding(false);LinearLayout effects=new LinearLayout(this);effects.setPadding(dp(2),dp(4),dp(2),dp(4));carousel.addView(effects);panel.addView(carousel,row(100,0));
-        for(int i=0;i<5;i++){
-            final int id=i;LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setGravity(Gravity.CENTER);card.setPadding(dp(5),dp(5),dp(5),dp(5));glass(card,17,false);
-            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(dp(78),dp(86));cp.setMargins(dp(3),dp(3),dp(3),dp(3));effects.addView(card,cp);effectCards[i]=card;
-            ImageView image=new ImageView(this);image.setImageBitmap(thumbnail);image.setScaleType(ImageView.ScaleType.CENTER_CROP);GradientDrawable clip=new GradientDrawable();clip.setColor(0xff374650);clip.setCornerRadius(dp(11));image.setBackground(clip);image.setClipToOutline(true);card.addView(image,new LinearLayout.LayoutParams(dp(62),dp(46)));effectImages[i]=image;
-            if(i==2)image.setColorFilter(0x19fff1d9,PorterDuff.Mode.SRC_ATOP);if(i==3&&Build.VERSION.SDK_INT>=31)image.setRenderEffect(RenderEffect.createBlurEffect(dp(1),dp(1),Shader.TileMode.CLAMP));
-            TextView name=text(Effects.SHORT[i],11,Color.WHITE);name.setGravity(Gravity.CENTER);card.addView(name,row(-2,6));card.setContentDescription(Effects.NAMES[i]);card.setFocusable(true);card.setOnClickListener(v->selectEffect(id));
+
+    // ---------------------------------------------------------------- layout
+    void build(boolean animate){
+        root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);setContentView(root);
+        SurfaceView preview=new SurfaceView(this);root.addView(preview,new FrameLayout.LayoutParams(-1,-1));preview.getHolder().addCallback(this);
+        View shade=new View(this);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x99000000,0x00000000,0x00000000,0x80000000}));root.addView(shade,new FrameLayout.LayoutParams(-1,-1));
+        root.setOnTouchListener(this::previewTouch);
+
+        header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);root.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+        LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);header.addView(bar);
+        bar.addView(text(this,"Tilt",34,BOLD,LABEL),new LinearLayout.LayoutParams(0,-2,1));
+        ImageView settings=circle(this,Glyph.GEAR,tr("Настройки","Settings"));bar.addView(settings,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        settings.setOnClickListener(v->{startActivity(new Intent(this,SettingsActivity.class));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);});
+        ImageView author=new ImageView(this);author.setImageResource(R.drawable.author_avatar);author.setScaleType(ImageView.ScaleType.CENTER_CROP);author.setForeground(new Shape(0,-1).stroke(px(this,1.5f),0x66ffffff));
+        author.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View v,Outline o){o.setOval(0,0,v.getWidth(),v.getHeight());}});author.setClipToOutline(true);author.setContentDescription(tr("Об авторе","About the author"));author.setClickable(true);
+        LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(dp(40),dp(40));ap.leftMargin=dp(10);bar.addView(pressable(author),ap);
+        author.setOnClickListener(v->{startActivity(new Intent(this,AuthorActivity.class));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);});
+        screens=new Segmented(this,tr("Главный экран","Home Screen"),tr("Блокировка","Lock Screen"));screens.select(WallpaperConfig.LOCK.equals(slot)?1:0,false);
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.topMargin=dp(12);header.addView(screens,sp);
+        screens.listener=i->switchSlot(i==1?WallpaperConfig.LOCK:WallpaperConfig.HOME);
+        LinearLayout chip=new LinearLayout(this);chip.setGravity(Gravity.CENTER_VERTICAL);chip.setBackground(glass(this,-1));chip.setPadding(dp(12),0,dp(14),0);
+        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(30));cp.topMargin=dp(10);header.addView(chip,cp);
+        dot=new View(this);dot.setBackground(new Shape(motion.sensor==null?0xff8e8e93:GREEN,-1));LinearLayout.LayoutParams dotParams=new LinearLayout.LayoutParams(dp(7),dp(7));dotParams.rightMargin=dp(8);chip.addView(dot,dotParams);
+        angle=text(this,motion.sensor==null?tr("Веди пальцем по экрану","Drag on the screen"):tr("Наклони телефон","Tilt your phone"),13,SEMIBOLD,LABEL);angle.setFontFeatureSettings("tnum");chip.addView(angle);
+
+        sheet=new ScrollView(this);sheet.setVerticalScrollBarEnabled(false);sheet.setOverScrollMode(View.OVER_SCROLL_NEVER);sheet.setBackground(new Shape(SHEET,px(this,30)).glass(Math.max(1,px(this,.7f))));
+        sheet.setOutlineProvider(ViewOutlineProvider.BACKGROUND);sheet.setClipToOutline(true);
+        root.addView(sheet,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
+        sheetBody=new LinearLayout(this);sheetBody.setOrientation(LinearLayout.VERTICAL);sheetBody.setPadding(dp(16),dp(8),dp(16),dp(16));sheet.addView(sheetBody);
+        LayoutTransition lt=new LayoutTransition();lt.enableTransitionType(LayoutTransition.CHANGING);lt.setDuration(SMOOTH.duration);sheetBody.setLayoutTransition(lt);
+        View grabber=new View(this);grabber.setBackground(new Shape(0x66ebebf5,-1));LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(dp(36),dp(5));gp.gravity=Gravity.CENTER_HORIZONTAL;gp.bottomMargin=dp(12);sheetBody.addView(grabber,gp);
+
+        LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);sheetBody.addView(titleRow);
+        effectTitle=text(this,"",22,BOLD,LABEL);titleRow.addView(effectTitle,new LinearLayout.LayoutParams(0,-2,1));
+        heart=circle(this,Glyph.HEART,tr("В избранное","Add to favorites"));titleRow.addView(heart,new LinearLayout.LayoutParams(dp(38),dp(38)));heart.setOnClickListener(v->toggleFavorite(profile().effect,v));
+        TextView all=capsule(this,tr("Все эффекты","All effects"),false);LinearLayout.LayoutParams allp=new LinearLayout.LayoutParams(-2,dp(38));allp.leftMargin=dp(8);titleRow.addView(all,allp);all.setOnClickListener(v->openCatalog());
+        effectAbout=text(this,"",15,REGULAR,SECONDARY);effectAbout.setPadding(0,dp(4),0,dp(10));sheetBody.addView(effectAbout);
+
+        HorizontalScrollView stripScroll=new HorizontalScrollView(this);stripScroll.setHorizontalScrollBarEnabled(false);stripScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        strip=new LinearLayout(this);stripScroll.addView(strip);sheetBody.addView(stripScroll,new LinearLayout.LayoutParams(-1,dp(116)));
+
+        // Lock tab without its own wallpaper: one switch, the editing controls hidden.
+        lockCard=new LinearLayout(this);lockCard.setOrientation(LinearLayout.VERTICAL);sheetBody.addView(lockCard);
+        editing=new LinearLayout(this);editing.setOrientation(LinearLayout.VERTICAL);sheetBody.addView(editing);
+        params=new LinearLayout(this);params.setOrientation(LinearLayout.VERTICAL);editing.addView(params);
+
+        TextView backgroundTitle=text(this,tr("Фон","Background"),15,SEMIBOLD,LABEL);backgroundTitle.setPadding(dp(4),dp(18),0,dp(10));editing.addView(backgroundTitle);
+        LinearLayout tileRow=new LinearLayout(this);editing.addView(tileRow);
+        for(int i=0;i<4;i++){
+            final int index=i-1;Tile tile=new Tile(i==0?null:ImageStore.preset(index,dp(74)/720f));tiles[i]=tile;tile.setContentDescription(i==0?tr("Своё фото","Your photo"):(config.en()?PRESETS_EN:PRESETS_RU)[index]);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.leftMargin=i==0?0:dp(8);tileRow.addView(pressable(tile),lp);
+            tile.setOnClickListener(v->{if(importing)return;tick(v);if(index<0)photoTile();else{ImageStore.usePreset(this,mediaSlot(),index);mediaChanged(tr("Образец «"+PRESETS_RU[index]+"»","Preset “"+PRESETS_EN[index]+"”"));}});
         }
-        description=text("",12,0xffd4dee3);description.setPadding(dp(4),dp(10),dp(4),dp(4));description.setMinHeight(dp(40));panel.addView(description);
-        parameterBox=new LinearLayout(this);parameterBox.setOrientation(1);panel.addView(parameterBox);
-        progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setIndeterminate(true);progress.setVisibility(View.GONE);panel.addView(progress,row(3,5));
-        status=text("",11,0xffd4dee3);status.setPadding(dp(4),dp(2),dp(4),0);status.setVisibility(View.GONE);panel.addView(status,row(-2,2));
-        LinearLayout actions=new LinearLayout(this);panel.addView(actions,row(54,10));choose=button(tr("Выбрать фото","Choose photo"),false);apply=button(tr("Установить","Apply wallpaper"),true);actions.addView(choose,new LinearLayout.LayoutParams(0,-1,1));LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(0,-1,1.15f);ap.leftMargin=dp(8);actions.addView(apply,ap);choose.setOnClickListener(v->photoOptions());apply.setOnClickListener(v->install());
-        if(renderer.performance.debug){debug=text("",10,0xffbde8d5);debug.setTypeface(Typeface.MONOSPACE);overlay.addView(debug,row(-2,4));}
-        setContentView(root);building=false;updateSelection();updateControls();if(motion.sensor==null)message(tr("Датчик недоступен. Ручной наклон — в настройках.","No motion sensor. Manual tilt is available in settings."));
+        frame=group(this,editing,tr("Кадр","Framing"));
+
+        status=text(this,"",13,REGULAR,SECONDARY);status.setGravity(Gravity.CENTER);status.setPadding(0,dp(14),0,dp(4));sheetBody.addView(status);
+        LinearLayout actions=new LinearLayout(this);LinearLayout.LayoutParams acp=new LinearLayout.LayoutParams(-1,dp(52));acp.topMargin=dp(8);sheetBody.addView(actions,acp);
+        choose=capsule(this,tr("Выбрать фото","Choose photo"),false);actions.addView(choose,new LinearLayout.LayoutParams(0,-1,1));choose.setOnClickListener(v->{if(editable())pick(PICK_PHOTO);});
+        install=capsule(this,tr("Установить","Set wallpaper"),true);LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(0,-1,1);ip.leftMargin=dp(10);actions.addView(install,ip);install.setOnClickListener(v->{tick(v);install();});
+
+        root.setOnApplyWindowInsetsListener((v,insets)->{
+            Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
+            header.setPadding(dp(20)+bars.left,dp(8)+bars.top,dp(20)+bars.right,0);
+            FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)sheet.getLayoutParams();p.leftMargin=dp(8)+bars.left;p.rightMargin=dp(8)+bars.right;p.bottomMargin=dp(8)+bars.bottom;sheet.setLayoutParams(p);
+            return insets;
+        });
+        // The sheet scrolls rather than covering the preview: at most 58% of the screen.
+        root.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{int max=Math.round((b-t)*.58f);FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)sheet.getLayoutParams();int want=sheetBody.getHeight()>max?max:-2;if(p.height!=want){p.height=want;sheet.post(()->sheet.setLayoutParams(p));}});
+        refresh();rebuildFraming();
+        if(animate){
+            for(int i=0;i<header.getChildCount();i++)rise(header.getChildAt(i),i);
+            sheet.setAlpha(0);sheet.post(()->{sheet.setTranslationY(sheet.getHeight()+dp(40));sheet.setAlpha(1);spring(sheet,SMOOTH).translationY(0).setStartDelay(160);});
+        }
+        applyHaptics(root);
     }
-    void selectEffect(int id){if(importing)return;config.effect=id;persist();updateSelection();updateControls();if(Effects.DEPTH[id])message(tr("Глубина готовится один раз. Автокарта — приближённая.","Depth is prepared once. Automatic depth is approximate."));else status.setVisibility(View.GONE);}
-    void updateSelection(){for(int i=0;i<5;i++){View v=effectCards[i];v.setSelected(i==config.effect);v.setAlpha(i==config.effect?1:.66f);if(!config.reduceMotion&&android.animation.ValueAnimator.areAnimatorsEnabled())v.animate().scaleX(i==config.effect?1.04f:1).scaleY(i==config.effect?1.04f:1).setDuration(150).start();else{v.setScaleX(1);v.setScaleY(1);}}
-        description.setText(Effects.description(config.effect,config.en()));}
-    interface Value {void set(float value);}
-    void slider(LinearLayout parent,String label,float value,Value change){
-        LinearLayout line=new LinearLayout(this);line.setGravity(Gravity.CENTER_VERTICAL);parent.addView(line,new LinearLayout.LayoutParams(-1,dp(48)));
-        TextView caption=text(label,12,0xfff1f3f4);line.addView(caption,new LinearLayout.LayoutParams(dp(100),-2));
-        SeekBar s=new SeekBar(this);s.setMax(100);s.setProgress(Math.round(value*100));s.setContentDescription(label);s.setProgressTintList(android.content.res.ColorStateList.valueOf(0xffe2e8eb));s.setThumbTintList(android.content.res.ColorStateList.valueOf(0xfff8fafb));line.addView(s,new LinearLayout.LayoutParams(0,dp(48),1));
-        s.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar bar,int p,boolean user){if(user)change.set(p/100f);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){saveNow();}});
+
+    /** Rebuilds everything that depends on the slot, the selected effect or its parameters. */
+    void refresh(){
+        WallpaperConfig.Profile p=profile();Effects.Effect e=p.effect();boolean en=config.en(),edit=editable();
+        effectTitle.setText(e.name(en));effectAbout.setText(e.about(en));
+        boolean fav=config.isFavorite(e.id);heart.setImageDrawable(new Glyph(this,fav?Glyph.HEART_FILL:Glyph.HEART,fav?0xffff375f:LABEL,19));heart.setContentDescription(fav?tr("Убрать из избранного","Remove from favorites"):tr("В избранное","Add to favorites"));
+        heart.setVisibility(edit?View.VISIBLE:View.GONE);
+        buildStrip();
+        params.removeAllViews();
+        if(edit){
+            LinearLayout card=group(this,params,tr("Параметры","Parameters"));float[] v=p.current();
+            unitSlider(this,card,en?e.aEn:e.aRu,v[0],x->{profile().current()[0]=x/100f;persist();});
+            unitSlider(this,card,en?e.bEn:e.bRu,v[1],x->{profile().current()[1]=x/100f;persist();});
+            if(e.hasSwitch()){Toggle t=new Toggle(this);t.setOn(v[2]>.5f,false);t.setContentDescription(en?e.switchEn:e.switchRu);t.listener=on->{profile().current()[2]=on?1:0;persist();};row(this,card,en?e.switchEn:e.switchRu,t);}
+            if(e.has(Effects.DEPTH)){TextView importDepth=text(this,tr("Импорт карты","Import map"),17,REGULAR,BLUE);importDepth.setClickable(true);importDepth.setOnClickListener(x->pick(PICK_DEPTH));row(this,card,tr("Глубина","Depth"),pressable(importDepth));}
+            TextView reset=text(this,tr("Сбросить эффект","Reset effect"),17,REGULAR,0xffff453a);reset.setClickable(true);reset.setOnClickListener(x->{profile().reset(e.id);persist();refresh();});row(this,card,null,pressable(reset));
+            if(e.has(Effects.DEPTH))footer(this,params,tr("Глубина считается автоматически и приблизительно. Своя карта точнее: белое — ближе, чёрное — дальше.","Depth is estimated automatically. Your own map is more accurate: white is near, black is far."));
+        }
+        lockCard.removeAllViews();
+        if(WallpaperConfig.LOCK.equals(slot)){
+            LinearLayout card=group(this,lockCard,null);Toggle own=new Toggle(this);own.setOn(config.separateLock,false);own.setContentDescription(tr("Свои обои на блокировке","Own lock screen wallpaper"));
+            own.listener=this::setSeparateLock;row(this,card,tr("Свои обои на блокировке","Own lock screen wallpaper"),own);
+            footer(this,lockCard,config.separateLock?tr("Своя картинка и эффект для экрана блокировки. При установке выбери «Главный экран и экран блокировки».","Its own picture and effect. When setting the wallpaper, choose “Home and lock screens”."):tr("Сейчас блокировка показывает то же, что и главный экран.","The lock screen currently mirrors the home screen."));
+        }
+        editing.setVisibility(edit?View.VISIBLE:View.GONE);choose.setEnabled(edit);choose.setAlpha(edit?1:.45f);
+        int selected=ImageStore.isCustom(this,mediaSlot())?0:ImageStore.presetIndex(this,mediaSlot())+1;for(int i=0;i<4;i++)tiles[i].setSelectedAnimated(i==selected);
+        if(status.getText().length()==0)status.setText(tr("Наклони телефон или веди пальцем по фото","Tilt your phone or drag across the photo"));
+        refreshPreviews();applyHaptics(sheetBody);
     }
-    void updateControls(){parameterBox.removeAllViews();int id=config.effect;
-        String[] a=config.en()?new String[]{"Intensity","Depth","Light","Glass","Aperture"}:new String[]{"Сила","Глубина","Свет","Стекло","Диафрагма"};
-        String[] b=config.en()?new String[]{"Smoothness","Motion","Width","Refraction","Focus travel"}:new String[]{"Плавность","Движение","Ширина","Преломление","Ход фокуса"};
-        slider(parameterBox,a[id],config.a[id],v->{config.a[id]=v;persist();});slider(parameterBox,b[id],config.b[id],v->{config.b[id]=v;persist();});
+    void rebuildFraming(){
+        frame.removeAllViews();WallpaperConfig.Profile p=profile();
+        unitSlider(this,frame,tr("Масштаб","Zoom"),(p.scale-1.02f)/1.48f,v->{profile().scale=1.02f+v/100f*1.48f;persist();});
+        unitSlider(this,frame,tr("Сдвиг по горизонтали","Horizontal position"),p.cropX,v->{profile().cropX=v/100f;persist();});
+        unitSlider(this,frame,tr("Сдвиг по вертикали","Vertical position"),p.cropY,v->{profile().cropY=v/100f;persist();});
     }
+    /** Favorites first, then recents, then the rest of the catalog. */
+    void buildStrip(){
+        strip.removeAllViews();LinkedHashSet<String> order=new LinkedHashSet<>(config.favorites);order.addAll(config.recents);for(Effects.Effect e:Effects.ALL)order.add(e.id);
+        for(String id:order){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(72),-1);lp.rightMargin=dp(8);strip.addView(card(Effects.get(id),dp(72),false),lp);}
+    }
+    /** Effect card: preview rendered on the slot's photo, name, selection ring. */
+    View card(Effects.Effect e,int width,boolean large){
+        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setClickable(true);card.setFocusable(true);card.setContentDescription(e.name(config.en()));
+        FrameLayout box=new FrameLayout(this);float radius=px(this,large?18:14);
+        ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);image.setBackground(new Shape(0xff2c2c2e,radius));image.setOutlineProvider(ViewOutlineProvider.BACKGROUND);image.setClipToOutline(true);
+        Bitmap b=previews.get(e.id);if(b!=null)image.setImageBitmap(b);image.setTag("preview:"+e.id);
+        box.addView(image,new FrameLayout.LayoutParams(-1,-1));
+        boolean selected=e.id.equals(profile().effect)&&editable();
+        if(selected)box.setForeground(new Shape(0,radius).stroke(px(this,2.5f),LABEL));
+        if(large&&config.isFavorite(e.id)){ImageView h=new ImageView(this);h.setImageDrawable(new Glyph(this,Glyph.HEART_FILL,0xffff375f,16));h.setBackground(new Shape(0x99000000,-1));h.setScaleType(ImageView.ScaleType.CENTER);FrameLayout.LayoutParams hp=new FrameLayout.LayoutParams(dp(28),dp(28),Gravity.TOP|Gravity.END);hp.setMargins(0,dp(6),dp(6),0);box.addView(h,hp);}
+        card.addView(box,new LinearLayout.LayoutParams(-1,large?Math.round(width*1.45f):dp(86)));
+        TextView name=text(this,e.name(config.en()),large?15:11,large?SEMIBOLD:MEDIUM,selected?LABEL:0xd9ffffff);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);name.setPadding(dp(2),dp(5),dp(2),0);if(!large)name.setGravity(Gravity.CENTER);card.addView(name);
+        if(large){TextView cat=text(this,e.category(config.en()),13,REGULAR,SECONDARY);cat.setPadding(dp(2),dp(1),0,0);card.addView(cat);}
+        card.setOnClickListener(v->{tick(v);selectEffect(e.id);if(catalog!=null&&catalog.getParent()!=null)closeCatalog();});
+        return pressable(card);
+    }
+    void refreshPreviews(){
+        String key=mediaSlot()+":"+DepthMapManager.key(this,mediaSlot());
+        if(key.equals(previewKey))return;previewKey=key;
+        thumbnails.render(mediaSlot(),profile(),(id,bitmap)->{Bitmap old=previews.put(id,bitmap);for(View v:findAll("preview:"+id))((ImageView)v).setImageBitmap(bitmap);if(old!=null)main.postDelayed(old::recycle,500);});
+    }
+    List<View> findAll(String tag){List<View> out=new ArrayList<>();collect(root,tag,out);if(catalog!=null&&catalog.getParent()==null)collect(catalog,tag,out);return out;}
+    static void collect(View v,String tag,List<View> out){if(tag.equals(v.getTag()))out.add(v);if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++)collect(((ViewGroup)v).getChildAt(i),tag,out);}
+
+    // ---------------------------------------------------------------- catalog
+    void openCatalog(){
+        if(catalog==null)buildCatalog();else search.setText("");
+        if(catalog.getParent()==null)root.addView(catalog,new FrameLayout.LayoutParams(-1,-1));
+        fillCatalog();catalog.setTranslationY(root.getHeight());spring(catalog,SMOOTH).translationY(0);updateBack();
+    }
+    void closeCatalog(){
+        if(catalog==null||catalog.getParent()==null)return;hideKeyboard();
+        spring(catalog,SNAPPY).translationY(root.getHeight()).withEndAction(()->{root.removeView(catalog);updateBack();});
+    }
+    void buildCatalog(){
+        catalog=new FrameLayout(this);catalog.setBackgroundColor(Color.BLACK);catalog.setClickable(true);
+        LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);catalog.addView(column,new FrameLayout.LayoutParams(-1,-1));
+        catalog.setOnApplyWindowInsetsListener((v,i)->{Insets bars=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());column.setPadding(bars.left,bars.top,bars.right,bars.bottom);return i;});
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);head.setPadding(dp(20),dp(12),dp(16),0);column.addView(head);
+        head.addView(text(this,tr("Эффекты","Effects"),34,BOLD,LABEL),new LinearLayout.LayoutParams(0,-2,1));
+        ImageView close=circle(this,Glyph.CLOSE,tr("Закрыть","Close"));head.addView(close,new LinearLayout.LayoutParams(dp(36),dp(36)));close.setOnClickListener(v->closeCatalog());
+        LinearLayout searchBox=new LinearLayout(this);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(40));sp.setMargins(dp(16),dp(12),dp(16),0);column.addView(searchBox,sp);
+        search=searchField(this,tr("Поиск эффектов","Search effects"),searchBox);
+        search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int n){}public void onTextChanged(CharSequence s,int a,int b,int n){fillCatalog();}public void afterTextChanged(android.text.Editable s){}});
+        HorizontalScrollView chipScroll=new HorizontalScrollView(this);chipScroll.setHorizontalScrollBarEnabled(false);chipScroll.setClipToPadding(false);chipScroll.setPadding(dp(16),0,dp(16),0);
+        LinearLayout chipRow=new LinearLayout(this);chipScroll.addView(chipRow);LinearLayout.LayoutParams crp=new LinearLayout.LayoutParams(-1,dp(36));crp.topMargin=dp(12);column.addView(chipScroll,crp);
+        String[] cats=config.en()?Effects.CATEGORY_EN:Effects.CATEGORY_RU;chips.clear();
+        for(int i=-2;i<cats.length;i++){
+            final int f=i==-2?-1:i==-1?-2:i;String label=f==-1?tr("Все","All"):f==-2?tr("Избранное","Favorites"):cats[f];
+            TextView c=chip(this,label);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-1);lp.rightMargin=dp(8);chipRow.addView(c,lp);chips.add(c);c.setTag(f);
+            c.setOnClickListener(v->{tick(v);filter=f;fillCatalog();});
+        }
+        ScrollView scroll=new ScrollView(this);scroll.setVerticalScrollBarEnabled(false);column.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        catalogGrid=new LinearLayout(this);catalogGrid.setOrientation(LinearLayout.VERTICAL);catalogGrid.setPadding(dp(16),dp(14),dp(16),dp(24));scroll.addView(catalogGrid);
+    }
+    void fillCatalog(){
+        for(TextView c:chips)chipSelected(c,(int)c.getTag()==filter);
+        List<Effects.Effect> found=new ArrayList<>();
+        for(Effects.Effect e:Effects.search(search==null?"":search.getText().toString()))if(filter==-1||filter==-2&&config.isFavorite(e.id)||filter==e.category)found.add(e);
+        catalogGrid.removeAllViews();int width=(root.getWidth()-dp(16)*2-dp(12))/2;
+        if(found.isEmpty()){TextView empty=text(this,filter==-2?tr("Пока пусто. Нажми ♥ у эффекта, чтобы добавить его сюда.","Nothing yet. Tap ♥ on an effect to add it here."):tr("Ничего не найдено","No effects found"),17,REGULAR,SECONDARY);empty.setGravity(Gravity.CENTER);empty.setPadding(dp(20),dp(60),dp(20),0);catalogGrid.addView(empty);return;}
+        LinearLayout line=null;
+        for(int i=0;i<found.size();i++){
+            if(i%2==0){line=new LinearLayout(this);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(18);catalogGrid.addView(line,lp);}
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(width,-2);if(i%2==1)cp.leftMargin=dp(12);line.addView(card(found.get(i),width,true),cp);
+        }
+        applyHaptics(catalog);
+    }
+
+    // ---------------------------------------------------------------- actions
+    void switchSlot(String next){
+        slot=next;renderer.mode(WallpaperConfig.LOCK.equals(next)?RenderLoop.SHOW_LOCK:RenderLoop.SHOW_HOME);status.setText("");refresh();rebuildFraming();loadTileThumbnail();
+    }
+    void selectEffect(String id){
+        if(!editable())return;profile().effect=id;config.used(id);persist();refresh();
+        Effects.Effect e=Effects.get(id);
+        swap(status,e.has(Effects.DEPTH)?tr("Глубина готовится по фото…","Estimating depth from your photo…"):e.has(Effects.WIPE)?tr("Проведи пальцем по фото","Swipe across the photo"):e.has(Effects.TOUCH)?tr("Коснись фото","Touch the photo"):tr("Наклони телефон","Tilt your phone"));
+    }
+    void toggleFavorite(String id,View v){config.toggleFavorite(id);tick(v);v.setScaleX(.7f);v.setScaleY(.7f);spring(v,BOUNCY).scaleX(1).scaleY(1);persist();refresh();}
+    void setSeparateLock(boolean on){
+        config.separateLock=on;
+        if(on){config.lock.copyFrom(config.home);io.execute(()->{try{ImageStore.copyMedia(getApplicationContext(),WallpaperConfig.HOME,WallpaperConfig.LOCK);}catch(Exception e){runOnUiThread(()->swap(status,tr("Не удалось скопировать фото","Could not copy the photo")));}runOnUiThread(()->{if(!isDestroyed()){previewKey=null;refresh();loadTileThumbnail();}});});}
+        persist();previewKey=null;refresh();rebuildFraming();loadTileThumbnail();
+    }
+    void photoTile(){
+        String m=mediaSlot();
+        if(!ImageStore.hasCustom(this,m)||ImageStore.isCustom(this,m)){pick(PICK_PHOTO);return;}
+        ImageStore.useCustom(this,m);mediaChanged(tr("Твоё фото","Your photo"));
+    }
+    void mediaChanged(String message){renderer.reload();previewKey=null;refresh();swap(status,message);loadTileThumbnail();}
+    void loadTileThumbnail(){String m=mediaSlot();int side=dp(74);io.execute(()->{Bitmap b=null;try{b=ImageStore.thumbnail(getApplicationContext(),m,side);}catch(Exception|OutOfMemoryError ignored){}final Bitmap t=b;runOnUiThread(()->{if(!isDestroyed())tiles[0].setImage(t);});});}
+    void install(){
+        saveNow();Intent intent=new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,new ComponentName(this,TiltWallpaper.class));
+        try{startActivity(intent);}catch(ActivityNotFoundException e){try{startActivity(new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER));}catch(ActivityNotFoundException missing){swap(status,tr("Системная установка обоев недоступна.","System wallpaper picker is unavailable."));}}
+    }
+    void pick(int request){
+        Intent i=request==PICK_PHOTO&&Build.VERSION.SDK_INT>=33?new Intent("android.provider.action.PICK_IMAGES").setType("image/*"):new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+        try{startActivityForResult(i,request);}catch(ActivityNotFoundException ex){try{startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE),request);}catch(ActivityNotFoundException e){swap(status,tr("Не найдено приложение выбора файлов.","No image picker is available."));}}
+    }
+    /** Drag on the preview tilts manually (touch effects receive the touch instead); a tap hides the interface. */
+    boolean previewTouch(View v,MotionEvent e){
+        boolean touchEffect=profile().effect().has(Effects.TOUCH);float w=Math.max(1,root.getWidth()),h=Math.max(1,root.getHeight());
+        switch(e.getActionMasked()){
+            case MotionEvent.ACTION_DOWN->{downX=e.getX();downY=e.getY();dragging=false;if(touchEffect)renderer.touch(e.getX()/w,e.getY()/h,true);}
+            case MotionEvent.ACTION_MOVE->{
+                float dx=e.getX()-downX,dy=e.getY()-downY;
+                if(touchEffect){renderer.touch(e.getX()/w,e.getY()/h,true);break;}
+                if(!dragging&&Math.hypot(dx,dy)>dp(10))dragging=true;
+                if(dragging){dragTiltX=FoldMath.clamp(dx/px(this,3),-80,80);dragTiltY=FoldMath.clamp(-dy/px(this,3),-80,80);renderer.tilt(dragTiltX+config.neutralX,dragTiltY+config.neutralY);angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f° · пальцем","Tilt %.0f° · finger"),Math.hypot(dragTiltX,dragTiltY)));}
+            }
+            case MotionEvent.ACTION_UP->{if(!dragging&&Math.hypot(e.getX()-downX,e.getY()-downY)<dp(10)&&!touchEffect)setHidden(!hidden);dragging=false;}
+            case MotionEvent.ACTION_CANCEL->dragging=false;
+        }
+        return true;
+    }
+    void setHidden(boolean value){hidden=value;updateBack();float drop=sheet.getHeight()+dp(60);spring(header,SMOOTH).alpha(value?0:1).translationY(value?-dp(24):0);spring(sheet,SMOOTH).translationY(value?drop:0);}
+
+    // ---------------------------------------------------------------- persistence & feedback
     final Runnable save=()->config.save(this);
     void persist(){renderer.settings(config);main.removeCallbacks(save);main.postDelayed(save,150);}
     void saveNow(){main.removeCallbacks(save);config.save(this);}
-    void message(String s){if(isDestroyed()||status==null)return;status.setText(s);status.setVisibility(View.VISIBLE);}
+    void tick(View v){if(config.haptics)v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);}
+    void applyHaptics(View v){if(v==null)return;v.setHapticFeedbackEnabled(config.haptics);if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++)applyHaptics(((ViewGroup)v).getChildAt(i));}
+    void hideKeyboard(){android.view.inputmethod.InputMethodManager m=getSystemService(android.view.inputmethod.InputMethodManager.class);if(m!=null&&search!=null)m.hideSoftInputFromWindow(search.getWindowToken(),0);}
     void showError(String code){if(isDestroyed())return;
-        if("depth".equals(code)){config.effect=0;persist();updateSelection();updateControls();message(tr("Не удалось подготовить глубину. Выбран Classic; также доступен Light.","Depth could not be prepared. Classic selected; Light is also available."));}
-        else if("image".equals(code))message(tr("Не удалось открыть фото. Выбери другое изображение.","Could not open this photo. Choose another image."));
-        else message(tr("Эффект недоступен на этой поверхности. Показано статичное фото.","This surface cannot display the effect. Showing the still photo."));
+        if("depth".equals(code))swap(status,tr("Не удалось подготовить глубину — пока показана Классика.","Depth could not be prepared — showing Classic for now."));
+        else if("image".equals(code))swap(status,tr("Не удалось открыть фото. Выбери другое.","Could not open this photo. Choose another."));
+        else swap(status,tr("Эффект недоступен на этом экране. Показано статичное фото.","This surface cannot show the effect. Showing the still photo."));
     }
-    void install(){saveNow();Intent intent=new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,new ComponentName(this,TiltWallpaper.class));try{startActivity(intent);}catch(ActivityNotFoundException e){try{startActivity(new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER));}catch(ActivityNotFoundException missing){message(tr("Системная установка обоев недоступна.","System wallpaper picker is unavailable."));}}}
-    void photoOptions(){new AlertDialog.Builder(this).setTitle(tr("Твоя фотография","Your photo")).setItems(config.en()?new String[]{"Choose photo","Rose ribbons","Blue ribbons","Amber ribbons"}:new String[]{"Выбрать фото","Розовые ленты","Синие ленты","Янтарные ленты"},(d,n)->{if(n==0)pick(10);else{ImageStore.prefs(this).edit().putBoolean("custom",false).putInt("preset",n-1).putLong("revision",System.nanoTime()).apply();renderer.reload();loadThumbnail();}}).show();}
-    void pick(int request){
-        Intent i=request==10&&Build.VERSION.SDK_INT>=33?new Intent("android.provider.action.PICK_IMAGES").setType("image/*"):new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
-        try{startActivityForResult(i,request);}catch(ActivityNotFoundException ex){try{startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE),request);}catch(ActivityNotFoundException e){message(tr("Не найдено приложение выбора файлов.","No image picker is available."));}}
+    // Back closes the catalog or brings the hidden interface back. Android 13+ (and target 36 gestures) only
+    // deliver back to a registered callback, so one is registered exactly while there is something to close.
+    final android.window.OnBackInvokedCallback back=this::handleBack;boolean backRegistered;
+    boolean catalogOpen(){return catalog!=null&&catalog.getParent()!=null;}
+    void handleBack(){if(catalogOpen())closeCatalog();else if(hidden)setHidden(false);}
+    void updateBack(){
+        if(Build.VERSION.SDK_INT<33)return;boolean want=catalogOpen()||hidden;
+        if(want&&!backRegistered)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,back);
+        else if(!want&&backRegistered)getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(back);
+        backRegistered=want;
     }
-    void advanced(){
-        LinearLayout box=new LinearLayout(this);box.setOrientation(1);box.setPadding(dp(22),dp(12),dp(22),dp(16));box.setBackgroundColor(0xff172027);ScrollView scroll=new ScrollView(this);scroll.addView(box);
-        String[] levels={"Auto","Battery","Balanced","High"};Spinner quality=new Spinner(this);quality.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,levels));quality.setSelection(config.quality);quality.setContentDescription(tr("Качество","Quality"));box.addView(text(tr("Качество и энергия","Quality & energy"),15,Color.WHITE));box.addView(quality,row(48,2));
-        quality.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onItemSelected(android.widget.AdapterView<?> p,View v,int i,long id){if(config.quality!=i){config.quality=i;persist();}}public void onNothingSelected(android.widget.AdapterView<?> p){}});
-        slider(box,tr("Датчики","Sensitivity"),(config.sensitivity-.1f)/1.9f,v->{config.sensitivity=.1f+v*1.9f;persist();});slider(box,tr("Сглаживание","Smoothing"),config.smoothing,v->{config.smoothing=v;persist();});
-        Switch reduce=new Switch(this);reduce.setText(tr("Меньше движения","Reduce Motion"));reduce.setTextColor(Color.WHITE);reduce.setChecked(config.reduceMotion);box.addView(reduce,row(52,4));reduce.setOnCheckedChangeListener((b,on)->{config.reduceMotion=on;persist();updateSelection();});
-        Switch touch=new Switch(this);touch.setText(tr("Рябь от касаний","Touch ripples"));touch.setTextColor(Color.WHITE);touch.setChecked(config.touch);box.addView(touch,row(52,0));touch.setOnCheckedChangeListener((b,on)->{config.touch=on;persist();});
-        Button neutral=button(tr("Это положение — нейтральное","Set current position as neutral"),false);box.addView(neutral,row(48,8));neutral.setOnClickListener(v->{config.neutralX=renderer.rawX;config.neutralY=renderer.rawY;persist();});
-        slider(box,tr("Масштаб","Zoom"),(config.scale-1.02f)/1.48f,v->{config.scale=1.02f+v*1.48f;persist();});slider(box,tr("Кадр по X","Crop X"),config.cropX,v->{config.cropX=v;persist();});slider(box,tr("Кадр по Y","Crop Y"),config.cropY,v->{config.cropY=v;persist();});
-        Button map=button(tr("Импорт карты глубины","Import depth map"),false);box.addView(map,row(48,8));map.setOnClickListener(v->pick(11));TextView note=text(tr("Автоглубина приближённая. В готовой карте белое — ближе, чёрное — дальше. Карта должна совпадать с фото.","Automatic depth is approximate. In an imported map white is near, black is far. The map must align with your photo."),12,0xffbdcbd3);box.addView(note,row(-2,8));
-        Switch hand=new Switch(this);hand.setText(tr("Ручной предпросмотр","Manual preview"));hand.setTextColor(Color.WHITE);hand.setChecked(manual);box.addView(hand,row(52,8));hand.setOnCheckedChangeListener((b,on)->{manual=on;update();if(!on)renderer.tilt(renderer.rawX,renderer.rawY);});slider(box,tr("Наклон","Tilt"),.5f,v->{if(manual)renderer.tilt((v-.5f)*160,config.neutralY);});
-        Button reset=button(tr("Сбросить эффект","Reset effect"),false);box.addView(reset,row(48,8));reset.setOnClickListener(v->{config.resetEffect();config.neutralX=config.neutralY=0;persist();updateControls();Toast.makeText(this,tr("Настройки эффекта сброшены","Effect reset"),Toast.LENGTH_SHORT).show();});
-        Button lang=button(config.en()?"Язык: русский":"Language: English",false);box.addView(lang,row(48,8));
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(tr("Настройки Solo","Solo settings")).setView(scroll).setPositiveButton(tr("Готово","Done"),(d,w)->saveNow()).create();lang.setOnClickListener(v->{config.language=config.en()?"ru":"en";saveNow();dialog.dismiss();recreate();});dialog.setOnDismissListener(d->saveNow());dialog.show();
-    }
-    void loadThumbnail(){final int request=++loadGeneration;imports.execute(()->{
-        Bitmap thumb=null,blur=null;boolean isBright=false;
-        try{Bitmap image=ImageStore.load(getApplicationContext());thumb=Bitmap.createScaledBitmap(image,120,180,true);blur=Bitmap.createScaledBitmap(image,16,24,true);if(image!=thumb&&image!=blur)image.recycle();int[] pixels=new int[16*24];blur.getPixels(pixels,0,16,0,0,16,24);double l=0;for(int p:pixels)l+=((p>>16)&255)*.2126+((p>>8)&255)*.7152+(p&255)*.0722;isBright=l/pixels.length>145;}catch(Exception|OutOfMemoryError e){}
-        final Bitmap t=thumb,b=blur;final boolean light=isBright;runOnUiThread(()->{if(isDestroyed()||request!=loadGeneration){if(t!=null)t.recycle();if(b!=null)b.recycle();return;}Bitmap old=thumbnail;thumbnail=t;backdrop=b;bright=light;for(ImageView im:effectImages)im.setImageBitmap(t);glass(panel,30,false);glass(choose,26,false);glass(apply,26,true);if(old!=null)old.recycle();});
-    });}
-    void update(){if(renderer==null)return;renderer.visible(resumed&&ready);if(resumed&&ready&&!manual)motion.start();else motion.stop();}
+    @SuppressWarnings("deprecation") @android.annotation.SuppressLint("GestureBackNavigation")
+    @Override public void onBackPressed(){if(catalogOpen()||hidden)handleBack();else super.onBackPressed();}
+    @Override protected void onSaveInstanceState(Bundle out){out.putString("slot",slot);super.onSaveInstanceState(out);}
+    void update(){if(renderer==null)return;renderer.visible(resumed&&ready);if(resumed&&ready)motion.start();else motion.stop();}
     public void surfaceCreated(SurfaceHolder h){}
     public void surfaceChanged(SurfaceHolder h,int format,int w,int height){renderer.attach(h.getSurface(),w,height);ready=true;update();}
     public void surfaceDestroyed(SurfaceHolder h){ready=false;update();renderer.detach();}
-    final Runnable diagnostic=new Runnable(){public void run(){if(resumed){if(renderer.performance.debug&&debug!=null){renderer.sensorInfo(motion.description());debug.setText(renderer.performance.lastSummary);}if(Effects.DEPTH[config.effect]&&!importing){progress.setVisibility(renderer.loading?View.VISIBLE:View.GONE);if(renderer.depthReady)message(renderer.manualDepth?tr("Используется твоя карта глубины.","Using your imported depth map."):tr("Приближённая глубина · импорт карты в настройках","Approximate depth · import a map in settings"));}main.postDelayed(this,1000);}}};
-    @Override protected void onResume(){super.onResume();resumed=true;update();main.postDelayed(diagnostic,1000);}
-    @Override protected void onPause(){saveNow();resumed=false;update();main.removeCallbacks(diagnostic);super.onPause();}
-    @Override protected void onDestroy(){loadGeneration++;main.removeCallbacksAndMessages(null);imports.shutdown();motion.close();renderer.close();super.onDestroy();}
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if((request!=10&&request!=11)||result!=RESULT_OK||data==null||data.getData()==null)return;
-        importing=true;choose.setEnabled(false);apply.setEnabled(false);progress.setVisibility(View.VISIBLE);message(tr("Подготовка изображения…","Preparing image…"));Uri uri=data.getData();Context app=getApplicationContext();
-        imports.execute(()->{boolean ok=true;try{if(request==10){ImageStore.importImage(app,uri);DepthMapManager.prune(app);}else DepthMapManager.importDepth(app,uri);}catch(Exception|OutOfMemoryError e){ok=false;}final boolean success=ok;runOnUiThread(()->{if(isDestroyed())return;importing=false;choose.setEnabled(true);apply.setEnabled(true);progress.setVisibility(View.GONE);if(success){renderer.reload();loadThumbnail();message(tr("Готово. Можно настроить эффект.","Ready. Adjust your effect."));}else showError(request==11?"depth":"image");});});
+    @Override protected void onResume(){
+        super.onResume();resumed=true;
+        // Settings may have changed in SettingsActivity.
+        WallpaperConfig latest=WallpaperConfig.load(this);
+        if(!latest.json().equals(config.json())){boolean language=!latest.language.equals(config.language);config=latest;renderer.settings(config);if(language){recreate();return;}refresh();rebuildFraming();applyHaptics(root);}
+        loadTileThumbnail();update();
+    }
+    @Override protected void onPause(){saveNow();resumed=false;update();super.onPause();}
+    @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);io.shutdown();motion.close();renderer.close();thumbnails.close();for(Bitmap b:previews.values())b.recycle();super.onDestroy();}
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if((request!=PICK_PHOTO&&request!=PICK_DEPTH)||result!=RESULT_OK||data==null||data.getData()==null)return;
+        importing=true;choose.setEnabled(false);install.setEnabled(false);swap(status,tr("Подготовка изображения…","Preparing image…"));Uri uri=data.getData();Context app=getApplicationContext();String m=mediaSlot();
+        io.execute(()->{boolean ok=true;try{if(request==PICK_PHOTO){ImageStore.importImage(app,uri,m);DepthMapManager.prune(app);}else DepthMapManager.importDepth(app,uri,m);}catch(Exception|OutOfMemoryError e){ok=false;}
+            final boolean success=ok;runOnUiThread(()->{if(isDestroyed())return;importing=false;choose.setEnabled(editable());install.setEnabled(true);
+                if(success){if(config.haptics)status.performHapticFeedback(HapticFeedbackConstants.CONFIRM);mediaChanged(request==PICK_DEPTH?tr("Используется твоя карта глубины","Using your depth map"):tr("Готово. Выбери эффект.","Ready. Pick an effect."));}
+                else{if(config.haptics)status.performHapticFeedback(HapticFeedbackConstants.REJECT);showError(request==PICK_DEPTH?"depth":"image");}});});
+    }
+
+    /** Wallpaper swatch: continuous-corner thumbnail with the iOS selection ring drawn outside a small gap. */
+    final class Tile extends View {
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG),ring=new Paint(Paint.ANTI_ALIAS_FLAG);final Path path=new Path(),outer=new Path();final RectF box=new RectF();
+        final Shape empty=glass(MainActivity.this,14);final Glyph plus=new Glyph(MainActivity.this,Glyph.PHOTO,LABEL,24);Bitmap image;float selection;android.animation.ValueAnimator animator;
+        Tile(Bitmap image){super(MainActivity.this);setClickable(true);setFocusable(true);ring.setStyle(Paint.Style.STROKE);ring.setColor(LABEL);setImage(image);}
+        void setImage(Bitmap next){image=next;paint.setShader(null);invalidate();}
+        void setSelectedAnimated(boolean value){
+            if(value==isSelected()&&animator!=null)return;setSelected(value);if(animator!=null)animator.cancel();
+            animator=android.animation.ValueAnimator.ofFloat(selection,value?1:0);animator.setInterpolator(BOUNCY);animator.setDuration(BOUNCY.duration);animator.addUpdateListener(a->{selection=(float)a.getAnimatedValue();invalidate();});animator.start();
+        }
+        @Override protected void onMeasure(int w,int h){int width=MeasureSpec.getSize(w);setMeasuredDimension(width,Math.round(width*1.42f));}
+        @Override protected void onDraw(Canvas c){
+            float d=px(getContext(),1),gap=5.5f*d,radius=14*d;box.set(gap,gap,getWidth()-gap,getHeight()-gap);squircle(path,box,radius);
+            if(image!=null){
+                if(paint.getShader()==null){BitmapShader shader=new BitmapShader(image,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);float s=Math.max(box.width()/image.getWidth(),box.height()/image.getHeight());Matrix m=new Matrix();m.setScale(s,s);m.postTranslate(box.centerX()-image.getWidth()*s/2,box.centerY()-image.getHeight()*s/2);shader.setLocalMatrix(m);paint.setShader(shader);}
+                c.drawPath(path,paint);
+            }else{
+                empty.setBounds((int)box.left,(int)box.top,(int)box.right,(int)box.bottom);empty.draw(c);
+                int size=plus.getIntrinsicWidth();plus.setBounds((int)(box.centerX()-size/2f),(int)(box.centerY()-size/2f),(int)(box.centerX()+size/2f),(int)(box.centerY()+size/2f));plus.draw(c);
+            }
+            if(selection>.01f){ring.setStrokeWidth(2.5f*d);ring.setAlpha((int)(255*Math.min(1,selection)));float inset=1.25f*d+(1-Math.min(1,selection))*3*d;box.set(inset,inset,getWidth()-inset,getHeight()-inset);c.drawPath(squircle(outer,box,radius+gap-inset),ring);}
+        }
+        @Override protected void onSizeChanged(int w,int h,int ow,int oh){paint.setShader(null);}
     }
 }

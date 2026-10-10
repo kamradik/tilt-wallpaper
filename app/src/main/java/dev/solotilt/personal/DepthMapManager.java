@@ -29,19 +29,20 @@ final class DepthMapManager {
         for(int i=0;i<pixels.length;i++){int v=Math.round(255*(smoothed[i]-min)/Math.max(.001f,max-min));pixels[i]=0xff000000|v<<16|v<<8|v;}
         return Bitmap.createBitmap(pixels,w,h,Bitmap.Config.ARGB_8888);
     };
-    static String key(Context c){return ImageStore.prefs(c).getBoolean("custom",false)?"custom-"+ImageStore.prefs(c).getLong("revision",0):"preset-"+ImageStore.prefs(c).getInt("preset",0);}
+    static String key(Context c,String slot){return ImageStore.isCustom(c,slot)?ImageStore.key("custom",slot)+"-"+ImageStore.revision(c,slot):"preset-"+ImageStore.presetIndex(c,slot);}
     static File file(Context c,String key,boolean manual){return new File(c.getFilesDir(),"depth-"+key+(manual?"-manual":"-approx-v1")+".png");}
     static boolean manual(Context c,String key){return file(c,key,true).isFile();}
     static synchronized Bitmap load(Context c,Bitmap image,String key)throws IOException{
         File f=file(c,key,manual(c,key));if(f.isFile()){Bitmap cached=BitmapFactory.decodeFile(f.getPath());if(cached!=null)return cached;}
         Bitmap result=PROVIDER.estimate(image);try{write(f,result);}catch(IOException e){result.recycle();throw e;}return result;
     }
-    static void importDepth(Context c,Uri uri)throws IOException{
-        String key=key(c);Bitmap decoded=ImageStore.decode(ImageDecoder.createSource(c.getContentResolver(),uri));
+    static void importDepth(Context c,Uri uri,String slot)throws IOException{
+        String key=key(c,slot);Bitmap decoded=ImageStore.decode(ImageDecoder.createSource(c.getContentResolver(),uri));
         Bitmap scaled=Bitmap.createScaledBitmap(decoded,Math.max(1,Math.round(decoded.getWidth()*Math.min(1,512f/Math.max(decoded.getWidth(),decoded.getHeight())))),Math.max(1,Math.round(decoded.getHeight()*Math.min(1,512f/Math.max(decoded.getWidth(),decoded.getHeight())))),true);
         try{write(file(c,key,true),scaled);}finally{if(scaled!=decoded)scaled.recycle();decoded.recycle();}
-        ImageStore.prefs(c).edit().putLong("depth_revision",System.nanoTime()).apply();
+        ImageStore.prefs(c).edit().putLong(ImageStore.key("depth_revision",slot),System.nanoTime()).apply();
     }
     static void write(File f,Bitmap bitmap)throws IOException{AtomicFile a=new AtomicFile(f);FileOutputStream out=null;try{out=a.startWrite();if(!bitmap.compress(Bitmap.CompressFormat.PNG,100,out))throw new IOException("Depth encode");a.finishWrite(out);}catch(IOException e){if(out!=null)a.failWrite(out);throw e;}}
-    static void prune(Context c){String current="depth-"+key(c);File[] files=c.getFilesDir().listFiles();if(files!=null)for(File f:files)if(f.getName().startsWith("depth-")&&!f.getName().startsWith(current+"-"))f.delete();}
+    /** Deletes depth maps of photos no slot shows any more. */
+    static void prune(Context c){String home="depth-"+key(c,WallpaperConfig.HOME)+"-",lock="depth-"+key(c,WallpaperConfig.LOCK)+"-";File[] files=c.getFilesDir().listFiles();if(files!=null)for(File f:files)if(f.getName().startsWith("depth-")&&!f.getName().startsWith(home)&&!f.getName().startsWith(lock))f.delete();}
 }

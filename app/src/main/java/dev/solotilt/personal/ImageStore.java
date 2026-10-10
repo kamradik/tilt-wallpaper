@@ -8,7 +8,6 @@ import java.io.*;
 final class ImageStore {
     static final Object LOCK=new Object();
     static SharedPreferences prefs(Context c){return c.getSharedPreferences("wallpaper",0);}
-    static AtomicFile file(Context c){return new AtomicFile(new File(c.getFilesDir(),"image.png"));}
     static Bitmap decode(ImageDecoder.Source source) throws IOException {
         return ImageDecoder.decodeBitmap(source,(decoder,info,s)->{
             int w=info.getSize().getWidth(),h=info.getSize().getHeight();
@@ -19,28 +18,44 @@ final class ImageStore {
             decoder.setOnPartialImageListener(e->false);
         });
     }
-    static void importImage(Context c,Uri uri)throws IOException{
+    /** Home keeps the pre-slot names (image.png, custom, preset, revision) so existing installs carry over unchanged. */
+    static String key(String base,String slot){return WallpaperConfig.LOCK.equals(slot)?base+"_lock":base;}
+    static AtomicFile file(Context c,String slot){return new AtomicFile(new File(c.getFilesDir(),WallpaperConfig.LOCK.equals(slot)?"image_lock.png":"image.png"));}
+    static boolean isCustom(Context c,String slot){return prefs(c).getBoolean(key("custom",slot),false)&&hasCustom(c,slot);}
+    static int presetIndex(Context c,String slot){return Math.floorMod(prefs(c).getInt(key("preset",slot),WallpaperConfig.LOCK.equals(slot)?1:0),3);}
+    static long revision(Context c,String slot){return prefs(c).getLong(key("revision",slot),0);}
+    static boolean isRevisionKey(String key){return key!=null&&(key.startsWith("revision")||key.startsWith("depth_revision"));}
+    static void importImage(Context c,Uri uri,String slot)throws IOException{
         Bitmap image=decode(ImageDecoder.createSource(c.getContentResolver(),uri));
         try{
             synchronized(LOCK){
-                AtomicFile target=file(c); FileOutputStream stream=null;
+                AtomicFile target=file(c,slot); FileOutputStream stream=null;
                 try{stream=target.startWrite();if(!image.compress(Bitmap.CompressFormat.PNG,100,stream))throw new IOException("Image encoding failed");target.finishWrite(stream);}
                 catch(Exception e){if(stream!=null)target.failWrite(stream);throw new IOException(e);}
             }
-            prefs(c).edit().putBoolean("custom",true).putLong("revision",System.nanoTime()).apply();
+            prefs(c).edit().putBoolean(key("custom",slot),true).putLong(key("revision",slot),System.nanoTime()).apply();
         }finally{image.recycle();}
     }
-    static Bitmap load(Context c)throws IOException{
-        if(prefs(c).getBoolean("custom",false)){
-            synchronized(LOCK){return decode(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(file(c).readFully())));}
+    static void usePreset(Context c,String slot,int index){prefs(c).edit().putBoolean(key("custom",slot),false).putInt(key("preset",slot),index).putLong(key("revision",slot),System.nanoTime()).apply();}
+    static void useCustom(Context c,String slot){prefs(c).edit().putBoolean(key("custom",slot),true).putLong(key("revision",slot),System.nanoTime()).apply();}
+    /** Starts a slot from another slot's media (used when the lock screen gets its own wallpaper). */
+    static void copyMedia(Context c,String from,String to)throws IOException{
+        synchronized(LOCK){
+            if(hasCustom(c,from)){byte[] data=file(c,from).readFully();AtomicFile target=file(c,to);FileOutputStream out=target.startWrite();try{out.write(data);target.finishWrite(out);}catch(IOException e){target.failWrite(out);throw e;}}
         }
-        return preset(prefs(c).getInt("preset",0));
+        prefs(c).edit().putBoolean(key("custom",to),isCustom(c,from)).putInt(key("preset",to),presetIndex(c,from)).putLong(key("revision",to),System.nanoTime()).apply();
     }
-    static boolean hasCustom(Context c){return file(c).getBaseFile().exists();}
-    /** Small copy of the saved photo for the picker tile; null when none is saved. */
-    static Bitmap thumbnail(Context c,int side)throws IOException{
-        if(!hasCustom(c))return null;
-        synchronized(LOCK){return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file(c).getBaseFile()),(decoder,info,s)->{
+    static Bitmap load(Context c,String slot)throws IOException{
+        if(isCustom(c,slot)){
+            synchronized(LOCK){return decode(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(file(c,slot).readFully())));}
+        }
+        return preset(presetIndex(c,slot));
+    }
+    static boolean hasCustom(Context c,String slot){return file(c,slot).getBaseFile().exists();}
+    /** Small copy of the slot's saved photo for picker tiles; null when none is saved. */
+    static Bitmap thumbnail(Context c,String slot,int side)throws IOException{
+        if(!hasCustom(c,slot))return null;
+        synchronized(LOCK){return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file(c,slot).getBaseFile()),(decoder,info,s)->{
             int w=info.getSize().getWidth(),h=info.getSize().getHeight();float scale=Math.min(1,side/(float)Math.min(w,h));
             decoder.setTargetSize(Math.max(1,Math.round(w*scale)),Math.max(1,Math.round(h*scale)));decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
         });}

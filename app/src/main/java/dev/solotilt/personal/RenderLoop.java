@@ -7,38 +7,59 @@ import android.os.*;
 import android.view.*;
 import android.hardware.display.DisplayManager;
 import android.util.Log;
+import java.nio.ByteBuffer;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class RenderLoop {
     // One preparation queue for preview and wallpaper; never decode/infer in a frame callback.
     static final ExecutorService PREPARE=Executors.newSingleThreadExecutor();
+    /** Which profile a surface shows: fixed home or lock, or follow the keyguard when one engine serves both screens. */
+    static final int SHOW_HOME=0,SHOW_LOCK=1,SHOW_FOLLOW=2;
+
     final Context context;final HandlerThread thread=new HandlerThread("SoloRenderer");final Handler handler;
     final java.util.function.Consumer<String> error;
     final RenderState input=new RenderState();final RenderState.Frame latest=new RenderState.Frame();
     final AtomicBoolean wakeQueued=new AtomicBoolean();final PerformanceController performance;final DisplayManager displays;
     Choreographer choreographer;volatile boolean framePending,closed,visible;
     EGLDisplay display=EGL14.EGL_NO_DISPLAY;EGLContext glContext=EGL14.EGL_NO_CONTEXT;EGLSurface eglSurface=EGL14.EGL_NO_SURFACE;
-    GlScene scene;Surface surface;Bitmap bitmap;int w=1,h=1;volatile boolean failed,depthReady,loading,manualDepth;
-    WallpaperConfig config;float x,y;volatile float rawX,rawY;long previousVsync,lastDraw,transitionStart,touchTime;
-    float touchX=.5f,touchY=.5f,oldA,oldB;int effect,previous;volatile int generation;
+    GlScene scene;Surface surface;int w=1,h=1;volatile boolean failed,loading;
+    WallpaperConfig config;float x,y;volatile float rawX,rawY;long previousVsync,lastDraw,transitionStart,transitionNanos=220_000_000L;
+    volatile int generation;int mode=SHOW_HOME;boolean locked;
+    // Per layer (0 home, 1 lock): CPU copy for the still fallback, the media key it was loaded from, depth state.
+    final Bitmap[] bitmaps=new Bitmap[2];final String[] loadedKeys=new String[2];final boolean[] depthReady=new boolean[2],manualDepth=new boolean[2];
+    final GlScene.Pass current=new GlScene.Pass(),outgoing=new GlScene.Pass();boolean hasCurrent;
+    final long startTime=SystemClock.elapsedRealtimeNanos();long wakeTime=startTime,touchTime;
+    final float[] touch={.5f,.5f,99,0};
+    // Condensation: screen-space wipe coverage that decays back to fog.
+    final byte[] wipeGrid=new byte[GlScene.WIPE_W*GlScene.WIPE_H];final ByteBuffer wipeBuffer=ByteBuffer.allocateDirect(wipeGrid.length);boolean wipeActive,wipeDirty;
     float refresh=60,qualityScale=1;long interval=16666667;int contextRetries;
     final Runnable wake=()->{wakeQueued.set(false);schedule();};
     final Runnable quality=()->{if(!closed&&scene!=null)try{configureQuality();schedule();}catch(Exception e){fail(e);}};
-    final Runnable recover=()->{if(closed)return;try{releaseGl();initialize();if(bitmap!=null)scene.upload(bitmap);depthReady=false;reload();schedule();}catch(Exception e){fail(e);}};
+    final Runnable recover=()->{if(closed)return;try{releaseGl();initialize();uploadAll();schedule();}catch(Exception e){fail(e);}};
+
     RenderLoop(Context c,java.util.function.Consumer<String> e){
-        context=c.getApplicationContext();error=e;config=WallpaperConfig.load(context);if(!android.animation.ValueAnimator.areAnimatorsEnabled())config.reduceMotion=true;effect=previous=config.effect;performance=new PerformanceController(context);
+        context=c.getApplicationContext();error=e;config=WallpaperConfig.load(context);if(!android.animation.ValueAnimator.areAnimatorsEnabled())config.reduceMotion=true;performance=new PerformanceController(context);
         displays=c.getSystemService(DisplayManager.class);Display d=displays.getDisplay(0);if(d!=null)refresh=Math.max(30,d.getRefreshRate());
         thread.start();handler=new Handler(thread.getLooper());handler.post(()->choreographer=Choreographer.getInstance());displays.registerDisplayListener(displayListener,handler);
     }
+
+    // ---- inputs ----
     void attach(Surface s,int width,int height){handler.post(()->{
         if(closed)return;w=width;h=height;failed=false;
         try{if(surface==s&&scene!=null){configureQuality();schedule();return;}
-            cancelFrame();releaseGl();surface=s;initialize();if(bitmap!=null)scene.upload(bitmap);depthReady=false;
-            if(bitmap==null||Effects.DEPTH[config.effect])reload();schedule();
+            cancelFrame();releaseGl();surface=s;initialize();uploadAll();prepare();schedule();
         }catch(Exception|OutOfMemoryError e){fail(e);}
     });}
-    void visible(boolean value){handler.post(()->{visible=value;previousVsync=lastDraw=0;handler.removeCallbacks(diagnostic);if(value){if(surface!=null&&surface.isValid())surface.setFrameRate(60,Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);schedule();if(performance.debug)handler.postDelayed(diagnostic,2000);}else cancelFrame();});}
+    void visible(boolean value){handler.post(()->{
+        boolean appeared=value&&!visible;visible=value;previousVsync=lastDraw=0;handler.removeCallbacks(diagnostic);
+        if(value){if(appeared)wakeTime=SystemClock.elapsedRealtimeNanos();if(surface!=null&&surface.isValid())surface.setFrameRate(60,Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);schedule();if(performance.debug)handler.postDelayed(diagnostic,2000);}
+        else cancelFrame();
+    });}
+    /** SHOW_HOME, SHOW_LOCK or SHOW_FOLLOW. */
+    void mode(int value){handler.post(()->{if(mode==value)return;mode=value;prepare();retarget(false);schedule();});}
+    /** Keyguard state for SHOW_FOLLOW; the switch to the other profile crossfades like an iOS unlock. */
+    void locked(boolean value){handler.post(()->{if(locked==value)return;locked=value;wakeTime=SystemClock.elapsedRealtimeNanos();retarget(true);schedule();});}
     void sensorInfo(String name){performance.sensor=name;}
     void tilt(float tx,float ty){tilt(tx,ty,SystemClock.elapsedRealtimeNanos());}
     void tilt(float tx,float ty,long timestamp){
@@ -46,35 +67,91 @@ final class RenderLoop {
         boolean changed=input.set(tx,ty,timestamp);
         if(visible&&!failed&&changed&&!framePending&&wakeQueued.compareAndSet(false,true))handler.post(wake);
     }
-    void touch(float tx,float ty){if(!config.touch)return;handler.post(()->{touchX=tx;touchY=1-ty;touchTime=SystemClock.elapsedRealtimeNanos();schedule();});}
-    void settings(WallpaperConfig next){WallpaperConfig copy=WallpaperConfig.parse(next.json());if(!android.animation.ValueAnimator.areAnimatorsEnabled())copy.reduceMotion=true;handler.post(()->{
-        if(closed)return;try{config=copy;configureEffect();if(scene!=null)configureQuality();
-        if(Effects.DEPTH[copy.effect]&&!depthReady&&!loading)reload();schedule();}catch(Exception e){fail(e);}
+    /** Normalized surface coordinates, y down. */
+    void touch(float tx,float ty,boolean down){if(!config.touch||config.reduceMotion)return;handler.post(()->{
+        touch[0]=tx;touch[1]=1-ty;touchTime=SystemClock.elapsedRealtimeNanos();if(down)wipe(tx,1-ty);schedule();
     });}
-    void configureEffect(){int requested=Effects.DEPTH[config.effect]&&!depthReady?0:config.effect;if(requested!=effect){previous=effect;oldA=config.a[effect];oldB=config.b[effect];effect=requested;transitionStart=SystemClock.elapsedRealtimeNanos();}}
-    void reload(){if(closed)return;handler.post(()->prepare());}
+    void settings(WallpaperConfig next){WallpaperConfig copy=next.copy();if(!android.animation.ValueAnimator.areAnimatorsEnabled())copy.reduceMotion=true;handler.post(()->{
+        if(closed)return;try{
+            // Only a change in which layers or depth maps are needed reloads media; slider moves just retarget.
+            boolean[] before={needed(0),needed(1),needsDepth(0),needsDepth(1)};config=copy;
+            if(scene!=null)configureQuality();if(before[0]!=needed(0)||before[1]!=needed(1)||before[2]!=needsDepth(0)||before[3]!=needsDepth(1))prepare();
+            retarget(false);schedule();
+        }catch(Exception e){fail(e);}
+    });}
+    /** Media of a slot changed on disk (prefs revision); reloads only layers whose media key differs. */
+    void reload(){if(!closed)handler.post(this::prepare);}
+
+    // ---- slots and layers ----
+    String slot(){return mode==SHOW_LOCK||mode==SHOW_FOLLOW&&locked?WallpaperConfig.LOCK:WallpaperConfig.HOME;}
+    int layer(String slot){return config.separateLock&&WallpaperConfig.LOCK.equals(slot)?1:0;}
+    static String mediaSlot(int layer){return layer==1?WallpaperConfig.LOCK:WallpaperConfig.HOME;}
+    WallpaperConfig.Profile profile(int layer){return layer==1?config.lock:config.home;}
+    boolean needed(int layer){return layer==0?!(config.separateLock&&mode==SHOW_LOCK):config.separateLock&&mode!=SHOW_HOME;}
+    boolean needsDepth(int layer){return needed(layer)&&profile(layer).effect().has(Effects.DEPTH);}
+
+    /** Points the current pass at the active profile; a different effect or layer starts a crossfade. */
+    void retarget(boolean slotChange){
+        int layer=layer(slot());WallpaperConfig.Profile p=config.profile(slot());
+        if(scene==null||!scene.ready(layer)){if(scene!=null&&scene.ready(1-layer)&&!hasCurrent){current.set(1-layer,profile(1-layer));hasCurrent=true;}return;}
+        // A depth effect shows Classic until its map is ready, then crossfades in.
+        boolean fallback=p.effect().has(Effects.DEPTH)&&!depthReady[layer];
+        String id=fallback?"classic":p.effect;
+        if(hasCurrent&&(current.layer!=layer||!current.effect.id.equals(id))&&!config.reduceMotion){outgoing.copy(current);outgoing.alpha=1;transitionStart=SystemClock.elapsedRealtimeNanos();transitionNanos=slotChange?380_000_000L:220_000_000L;}
+        current.set(layer,p);if(fallback){current.effect=Effects.ALL[0];float[] d=current.effect.defaults();current.a=d[0];current.b=d[1];current.toggle=d[2];}
+        hasCurrent=true;
+    }
     void prepare(){
         if(closed)return;final int request=++generation;loading=true;
-        final boolean needDepth=Effects.DEPTH[config.effect];
+        // Snapshot render-thread state; the worker must not read fields this thread keeps changing.
+        final boolean[] want=new boolean[2],needDepth=new boolean[2],missingDepth=new boolean[2];final String[] keys=new String[2],loaded=loadedKeys.clone();
+        for(int i=0;i<2;i++){want[i]=needed(i);needDepth[i]=needsDepth(i);missingDepth[i]=needDepth[i]&&!depthReady[i];}
         PREPARE.execute(()->{
-            Bitmap photo=null,depth=null;String failure=null;String key=DepthMapManager.key(context);
-            try{photo=ImageStore.load(context);if(needDepth)try{depth=DepthMapManager.load(context,photo,key);}catch(Exception|OutOfMemoryError e){Log.w("SoloDepth","Preparation failed",e);failure="depth";}}
-            catch(Exception|OutOfMemoryError e){Log.w("SoloImage","Preparation failed",e);failure="image";}
-            final Bitmap ready=photo,readyDepth=depth;final String problem=failure;final boolean imported=DepthMapManager.manual(context,key);
-            if(closed||request!=generation||!key.equals(DepthMapManager.key(context))){if(ready!=null)ready.recycle();if(readyDepth!=null)readyDepth.recycle();if(!closed&&request==generation)handler.post(this::prepare);return;}
+            final Bitmap[] photos=new Bitmap[2],maps=new Bitmap[2];final boolean[] imported=new boolean[2];String failure=null;
+            for(int i=0;i<2;i++){
+                if(!want[i])continue;String slot=mediaSlot(i);keys[i]=DepthMapManager.key(context,slot);
+                if(keys[i].equals(loaded[i])&&!missingDepth[i])continue;
+                try{photos[i]=ImageStore.load(context,slot);
+                    if(needDepth[i])try{maps[i]=DepthMapManager.load(context,photos[i],keys[i]);imported[i]=DepthMapManager.manual(context,keys[i]);}catch(Exception|OutOfMemoryError e){Log.w("SoloDepth","Preparation failed",e);failure="depth";}
+                }catch(Exception|OutOfMemoryError e){Log.w("SoloImage","Preparation failed",e);failure="image";}
+            }
+            final String problem=failure;
             boolean posted=handler.post(()->{
-                if(closed||request!=generation){if(ready!=null)ready.recycle();if(readyDepth!=null)readyDepth.recycle();return;}
+                if(closed||request!=generation){recycle(photos);recycle(maps);return;}
                 loading=false;try{
-                    if(ready==null){notifyError("image");return;}
-                    if(bitmap!=null)bitmap.recycle();bitmap=ready;depthReady=false;manualDepth=imported;
-                    if(scene!=null){scene.upload(bitmap);if(readyDepth!=null){scene.uploadDepth(readyDepth);depthReady=true;}}
-                    configureEffect();if(problem!=null)notifyError(problem);schedule();
-                    if(!needDepth&&Effects.DEPTH[config.effect]&&scene!=null)prepare();
-                }catch(Exception|OutOfMemoryError ex){fail(ex);}finally{if(readyDepth!=null)readyDepth.recycle();}
+                    for(int i=0;i<2;i++){
+                        if(photos[i]==null)continue;
+                        if(bitmaps[i]!=null)bitmaps[i].recycle();bitmaps[i]=photos[i];photos[i]=null;loadedKeys[i]=keys[i];depthReady[i]=false;
+                        if(scene!=null)scene.upload(i,bitmaps[i]);
+                        if(maps[i]!=null&&scene!=null){scene.uploadDepth(i,maps[i]);depthReady[i]=true;manualDepth[i]=imported[i];}
+                    }
+                    if(problem!=null)notifyError(problem);retarget(false);schedule();
+                }catch(Exception|OutOfMemoryError ex){fail(ex);}finally{recycle(photos);recycle(maps);}
             });
-            if(!posted){if(ready!=null)ready.recycle();if(readyDepth!=null)readyDepth.recycle();}
+            if(!posted){recycle(photos);recycle(maps);}
         });
     }
+    static void recycle(Bitmap[] items){for(int i=0;i<items.length;i++)if(items[i]!=null){items[i].recycle();items[i]=null;}}
+    void uploadAll()throws Exception{
+        if(scene==null)return;
+        for(int i=0;i<2;i++)if(bitmaps[i]!=null){scene.upload(i,bitmaps[i]);depthReady[i]=false;}
+        hasCurrent=false;retarget(false); // photos re-uploaded from memory; prepare() reloads only the depth maps that died with the context
+    }
+
+    // ---- condensation wipe ----
+    void wipe(float tx,float ty){
+        int cx=Math.round(tx*(GlScene.WIPE_W-1)),cy=Math.round(ty*(GlScene.WIPE_H-1)),r=6;
+        for(int y=Math.max(0,cy-r);y<=Math.min(GlScene.WIPE_H-1,cy+r);y++)for(int x=Math.max(0,cx-r);x<=Math.min(GlScene.WIPE_W-1,cx+r);x++)
+            if((x-cx)*(x-cx)+(y-cy)*(y-cy)<=r*r)wipeGrid[y*GlScene.WIPE_W+x]=(byte)255;
+        wipeActive=wipeDirty=true;
+    }
+    void decayWipe(float seconds){
+        float keep=(float)Math.exp(-seconds/20f);boolean any=false;
+        for(int i=0;i<wipeGrid.length;i++){int v=wipeGrid[i]&0xff;if(v>0){v=Math.round(v*keep);wipeGrid[i]=(byte)v;any|=v>2;}}
+        wipeActive=any;wipeDirty=true;
+    }
+
+    // ---- GL ----
     void initialize()throws Exception{
         if(surface==null||!surface.isValid())return;
         display=EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);int[] vers=new int[2];if(!EGL14.eglInitialize(display,vers,0,vers,1))throw new IllegalStateException("EGL initialize");
@@ -89,29 +166,36 @@ final class RenderLoop {
         if(scene==null)return;float next=performance.desiredScale(config.quality,w,h);
         if(scene.renderWidth==0||Math.abs(next-qualityScale)>.01||Math.round(w*next)!=scene.renderWidth||Math.round(h*next)!=scene.renderHeight){qualityScale=next;scene.resize(w,h,next);}
         performance.width=scene.renderWidth;performance.height=scene.renderHeight;
-        float target=config.quality==1||performance.saver?30:60;
+        float target=config.fps==WallpaperConfig.FPS_30||config.quality==1||performance.saver?30:60;
         interval=(long)(Math.ceil(refresh/target)*1e9/refresh);
     }
     final Choreographer.FrameCallback frame=this::drawFrame;
     void drawFrame(long vsync){
         framePending=false;if(closed||!visible||surface==null||!surface.isValid())return;
-        if(failed){still();return;}if(scene==null||bitmap==null)return;
-        if(lastDraw!=0&&vsync-lastDraw<interval-2000000){schedule();return;}
+        if(failed){still();return;}if(scene==null||!hasCurrent)return;
+        // Ambient animation alone (no tilt in flight) runs at 30 fps under Auto; tilting gets the full rate.
+        long pace=ambientOnly&&config.fps==WallpaperConfig.FPS_AUTO?Math.max(interval,33_333_333L):interval;
+        if(lastDraw!=0&&vsync-lastDraw<pace-2000000){schedule();return;}
         try{
             long start=SystemClock.elapsedRealtimeNanos();input.read(latest);performance.eventCount=latest.count;
             float dt=previousVsync==0?interval*1e-6f:Math.min(100,(vsync-previousVsync)*1e-6f);
             if(previousVsync>0&&vsync-previousVsync>interval*1.5)performance.dropped+=Math.max(0,Math.round((vsync-previousVsync)/(double)interval)-1);
             previousVsync=lastDraw=vsync;
-            float smooth=config.effect==0?config.b[0]:config.smoothing;
+            float smooth=current.effect==Effects.ALL[0]?current.b:config.smoothing;
             float blend=1-(float)Math.exp(-dt/(18+smooth*72));
             float targetX=(latest.x-config.neutralX)*config.sensitivity,targetY=(latest.y-config.neutralY)*config.sensitivity;
             x+=(targetX-x)*blend;y+=(targetY-y)*blend;
             if(Math.abs(targetX-x)<.02f)x=targetX;if(Math.abs(targetY-y)<.02f)y=targetY;
             // Mip preparation is a one-off task between frame callbacks, never a frame-time allocation.
-            if(scene.nextLevel<=scene.levels&&!this.blurQueued){this.blurQueued=true;handler.post(this.blurStep);}
-            float transition=config.reduceMotion?1:Math.min(1,(start-transitionStart)/220000000f);
-            float touchAge=touchTime==0?99:(start-touchTime)*1e-9f;
-            scene.draw(w,h,x,y,config,effect,previous,transition,oldA,oldB,touchX,touchY,touchAge);
+            if(scene.blurPending()&&!blurQueued){blurQueued=true;handler.post(blurStep);}
+            float transition=config.reduceMotion?1:Math.min(1,(start-transitionStart)/(float)transitionNanos);
+            touch[2]=touchTime==0?99:(start-touchTime)*1e-9f;touch[3]=config.touch&&!config.reduceMotion?1:0;
+            if(current.effect.has(Effects.WIPE)){if(wipeActive)decayWipe(dt*1e-3f);if(wipeDirty){wipeBuffer.position(0);wipeBuffer.put(wipeGrid);scene.updateWipe(wipeBuffer);wipeDirty=false;}}
+            float motion=config.reduceMotion?.15f:1,time=((start-startTime)*1e-9f)%3600f,wakeAge=(start-wakeTime)*1e-9f;
+            scene.begin();
+            if(transition<1){scene.draw(outgoing,w,h,x,y,motion,touch,time,wakeAge);current.alpha=transition*transition*(3-2*transition);}else current.alpha=1;
+            scene.draw(current,w,h,x,y,motion,touch,time,wakeAge);
+            scene.end(w,h);
             long submitted=SystemClock.elapsedRealtimeNanos();
             if(!EGL14.eglSwapBuffers(display,eglSurface)){
                 int code=EGL14.eglGetError();if(code==EGL14.EGL_CONTEXT_LOST&&contextRetries++<2){handler.post(recover);return;}throw new IllegalStateException("EGL swap "+Integer.toHexString(code));
@@ -120,22 +204,33 @@ final class RenderLoop {
             performance.sensorAgeMs=latest.timestamp==0?0:Math.max(0,(start-latest.timestamp)*1e-6f);
             float desired=performance.desiredScale(config.quality,w,h);
             if(performance.sample(performance.frameMs)||Math.abs(desired-qualityScale)>.01)handler.post(quality);
-            if(scene.nextLevel<=scene.levels||x!=targetX||y!=targetY||transition<1||(effect==3&&config.touch&&!config.reduceMotion&&touchAge<1.6f))schedule();else previousVsync=lastDraw=0;
+            boolean live=!config.reduceMotion&&(current.effect.animated(current.toggle>.5f)
+                ||current.effect.has(Effects.TOUCH)&&touch[3]>0&&touch[2]<1.6f||current.effect.has(Effects.WIPE)&&wipeActive||wakeAge<1.2f);
+            boolean settling=scene.blurPending()||x!=targetX||y!=targetY||transition<1;ambientOnly=live&&!settling;
+            if(settling||live)schedule();else previousVsync=lastDraw=0;
         }catch(Exception e){fail(e);}
     }
-    boolean blurQueued;
+    boolean blurQueued,ambientOnly;
     final Runnable diagnostic=new Runnable(){public void run(){if(!closed&&visible&&performance.debug){input.read(latest);performance.eventCount=latest.count;Log.i("SoloPerf",performance.report());handler.postDelayed(this,2000);}}};
     final DisplayManager.DisplayListener displayListener=new DisplayManager.DisplayListener(){public void onDisplayAdded(int id){}public void onDisplayRemoved(int id){}public void onDisplayChanged(int id){if(id!=0||closed)return;Display d=displays.getDisplay(id);if(d!=null){refresh=Math.max(30,d.getRefreshRate());handler.post(quality);}}};
     final Runnable blurStep=()->{blurQueued=false;if(!closed&&scene!=null&&visible)try{scene.prepareBlur();schedule();}catch(Exception e){fail(e);}};
-    void schedule(){if(visible&&!closed&&surface!=null&&!framePending){framePending=true;choreographer.postFrameCallback(frame);}}
-    void cancelFrame(){choreographer.removeFrameCallback(frame);framePending=false;}
+    void schedule(){if(visible&&!closed&&surface!=null&&!framePending&&choreographer!=null){framePending=true;choreographer.postFrameCallback(frame);}}
+    void cancelFrame(){if(choreographer!=null)choreographer.removeFrameCallback(frame);framePending=false;}
     void notifyError(String code){if(error!=null)error.accept(code);}
     void fail(Throwable e){Log.e("SoloRenderer","Rendering failed",e);failed=true;releaseGl();notifyError("gpu");if(visible)still();}
-    void still(){if(surface==null||!surface.isValid()||bitmap==null)return;Canvas c=null;try{c=surface.lockCanvas(null);c.drawColor(Color.BLACK);float s=Math.max((float)c.getWidth()/bitmap.getWidth(),(float)c.getHeight()/bitmap.getHeight());float bw=bitmap.getWidth()*s,bh=bitmap.getHeight()*s;c.drawBitmap(bitmap,null,new RectF((c.getWidth()-bw)/2,(c.getHeight()-bh)/2,(c.getWidth()+bw)/2,(c.getHeight()+bh)/2),new Paint(3));}catch(Exception e){Log.w("SoloRenderer","Surface unavailable",e);}finally{if(c!=null)surface.unlockCanvasAndPost(c);}}
+    void still(){
+        Bitmap bitmap=bitmaps[hasCurrent?current.layer:0];if(bitmap==null)bitmap=bitmaps[0];
+        if(surface==null||!surface.isValid()||bitmap==null)return;Canvas c=null;
+        try{c=surface.lockCanvas(null);c.drawColor(Color.BLACK);float s=Math.max((float)c.getWidth()/bitmap.getWidth(),(float)c.getHeight()/bitmap.getHeight());float bw=bitmap.getWidth()*s,bh=bitmap.getHeight()*s;c.drawBitmap(bitmap,null,new RectF((c.getWidth()-bw)/2,(c.getHeight()-bh)/2,(c.getWidth()+bw)/2,(c.getHeight()+bh)/2),new Paint(3));}
+        catch(Exception e){Log.w("SoloRenderer","Surface unavailable",e);}finally{if(c!=null)surface.unlockCanvasAndPost(c);}
+    }
     void releaseGl(){
         if(display!=EGL14.EGL_NO_DISPLAY){if(scene!=null){scene.close();scene=null;}EGL14.eglMakeCurrent(display,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_SURFACE,EGL14.EGL_NO_CONTEXT);if(eglSurface!=EGL14.EGL_NO_SURFACE)EGL14.eglDestroySurface(display,eglSurface);if(glContext!=EGL14.EGL_NO_CONTEXT)EGL14.eglDestroyContext(display,glContext);EGL14.eglTerminate(display);EGL14.eglReleaseThread();}
         display=EGL14.EGL_NO_DISPLAY;glContext=EGL14.EGL_NO_CONTEXT;eglSurface=EGL14.EGL_NO_SURFACE;
     }
     void detach(){CountDownLatch latch=new CountDownLatch(1);handler.post(()->{try{cancelFrame();releaseGl();surface=null;}finally{latch.countDown();}});try{latch.await(250,TimeUnit.MILLISECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}}
-    void close(){closed=true;generation++;displays.unregisterDisplayListener(displayListener);performance.close();handler.post(()->{visible=false;cancelFrame();releaseGl();surface=null;if(bitmap!=null){bitmap.recycle();bitmap=null;}thread.quitSafely();});}
+    void close(){closed=true;generation++;displays.unregisterDisplayListener(displayListener);performance.close();handler.post(()->{visible=false;cancelFrame();releaseGl();surface=null;recycle(bitmaps);thread.quitSafely();});}
+    /** Depth state of what is on screen, for the preview's status line. */
+    boolean showingDepth(){return hasCurrent&&depthReady[current.layer];}
+    boolean showingManualDepth(){return hasCurrent&&manualDepth[current.layer];}
 }
