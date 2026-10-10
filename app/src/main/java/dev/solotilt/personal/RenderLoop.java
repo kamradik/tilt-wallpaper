@@ -18,7 +18,8 @@ final class RenderLoop {
     void attach(Surface s,int width,int height){handler.post(()->{if(closed)return;releaseGl();surface=s;w=width;h=height;failed=false;try{load();initialize();schedule();}catch(Exception e){fail(e);}});}
     void visible(boolean value){handler.post(()->{visible=value;lastFrame=0;if(value)schedule();else handler.removeCallbacks(frame);});}
     void tilt(float tx,float ty){handler.post(()->{if(Math.abs(tx-targetX)<.05f&&Math.abs(ty-targetY)<.05f)return;targetX=tx;targetY=ty;schedule();});}
-    void reload(){handler.post(()->{if(closed)return;try{load();if(scene!=null)scene.upload(bitmap);schedule();}catch(Exception e){fail(e);}});}
+    // A new picture is also a retry: a failed GL session is rebuilt instead of staying on the still fallback.
+    void reload(){handler.post(()->{if(closed)return;try{load();if(failed||scene==null){failed=false;releaseGl();initialize();}else scene.upload(bitmap);schedule();}catch(Exception e){fail(e);}});}
     void load()throws Exception{Bitmap next=ImageStore.load(context);if(bitmap!=null)bitmap.recycle();bitmap=next;}
     void initialize()throws Exception{
         if(surface==null||!surface.isValid())return;
