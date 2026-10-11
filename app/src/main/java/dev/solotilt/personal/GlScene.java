@@ -12,6 +12,7 @@ import static android.opengl.GLES30.*;
 /**
  * GL resources for one surface: a lazily compiled program per effect (fx/common + fx/<id> + fx/main),
  * two photo layers (home and lock, so an unlock switches instantly), a quality framebuffer and the wipe mask.
+ * A video layer is the same 2D texture, refilled from the decoder's OES texture on each new frame (blitVideo).
  */
 final class GlScene {
     static final String[] UNIFORMS={"u_image","u_depth","u_wipeMask","u_imageSize","u_coverScale","u_crop","u_zoom","u_aspect","u_projectionX","u_projectionY","u_projectionZ","u_gap","u_blurGap","u_screenWidthMm","u_tilt","u_touch","u_params","u_toggle","u_motion","u_time","u_wake","u_alpha"};
@@ -29,10 +30,10 @@ final class GlScene {
 
     final Context context;final String vertex,common,main;final int blur;final float pixelsPerMm;
     final Map<String,int[]> programs=new HashMap<>();
-    final int[] vao=new int[1],vbo=new int[1],fbo=new int[2],scratch=new int[3];
+    final int[] vao=new int[1],vbo=new int[1],fbo=new int[3],scratch=new int[3],oes=new int[2];
     final Layer[] layers={new Layer(),new Layer()};
     final float[] projection=new float[15];
-    int blurSource,blurLevel,blurStep,renderWidth,renderHeight,neutralDepth;
+    int blurSource,blurLevel,blurStep,renderWidth,renderHeight,neutralDepth,video,videoSource,videoTransform;
 
     GlScene(Context context)throws IOException{
         this.context=context;
@@ -53,7 +54,7 @@ final class GlScene {
         layers[0].image=t[0];layers[1].image=t[1];layers[0].depth=t[2];layers[1].depth=t[3];scratch[0]=t[4];scratch[1]=t[5];neutralDepth=t[6];scratch[2]=t[7];
         glBindTexture(GL_TEXTURE_2D,neutralDepth);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,ByteBuffer.wrap(new byte[]{127,127,127,-1}));
         glBindTexture(GL_TEXTURE_2D,scratch[2]);glPixelStorei(GL_UNPACK_ALIGNMENT,1);glTexImage2D(GL_TEXTURE_2D,0,GL_R8,WIPE_W,WIPE_H,0,GL_RED,GL_UNSIGNED_BYTE,ByteBuffer.allocateDirect(WIPE_W*WIPE_H));
-        glGenFramebuffers(2,fbo,0);glDisable(GL_DEPTH_TEST);glDisable(GL_BLEND);check("initialize");
+        glGenFramebuffers(3,fbo,0);glDisable(GL_DEPTH_TEST);glDisable(GL_BLEND);check("initialize");
     }
     static String asset(Context c,String name)throws IOException{
         try(InputStream in=c.getAssets().open(name);ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}
@@ -95,6 +96,31 @@ final class GlScene {
         glBindFramebuffer(GL_FRAMEBUFFER,0);check("blur");return blurPending();
     }
 
+    /** The layer's external texture for a SurfaceTexture, created on first use so devices without OES video never touch it. */
+    int videoTexture(int index){
+        if(oes[index]!=0)return oes[index];int[] t=new int[1];glGenTextures(1,t,0);glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,t[0]);
+        glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        check("video texture");return oes[index]=t[0];
+    }
+    /**
+     * Copies the latched video frame into the layer's image at a capped size, then box-filters the mips in one call:
+     * the per-level Gaussian pyramid would take a frame per level, longer than a video frame lives.
+     */
+    void blitVideo(int index,float[] transform,int videoWidth,int videoHeight)throws IOException{
+        if(video==0){video=program(vertex,asset(context,"video_blit.glsl"));videoSource=glGetUniformLocation(video,"u_video");videoTransform=glGetUniformLocation(video,"u_transform");}
+        Layer l=layers[index];int w=VideoPlayer.capped(videoWidth,videoHeight),h=VideoPlayer.capped(videoHeight,videoWidth);
+        glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,l.image);glBindFramebuffer(GL_FRAMEBUFFER,fbo[2]);
+        boolean resized=l.width!=w||l.height!=h;
+        if(resized){l.width=w;l.height=h;l.levels=(int)(Math.log(Math.max(w,h))/Math.log(2));glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAX_LEVEL,l.levels);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,w,h,0,GL_RGBA,GL_UNSIGNED_BYTE,null);}
+        glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,l.image,0);
+        if(resized&&glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)throw new IllegalStateException("Video framebuffer");
+        glViewport(0,0,w,h);glBindVertexArray(vao[0]);glUseProgram(video);glDisable(GL_BLEND);
+        glActiveTexture(GL_TEXTURE3);glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,oes[index]);glUniform1i(videoSource,3);glUniformMatrix4fv(videoTransform,1,false,transform,0);
+        glDrawArrays(GL_TRIANGLES,0,6);glBindFramebuffer(GL_FRAMEBUFFER,0);
+        glActiveTexture(GL_TEXTURE0);glGenerateMipmap(GL_TEXTURE_2D);l.nextLevel=l.levels+1;check("video blit");
+    }
+
     void begin(){glBindFramebuffer(GL_FRAMEBUFFER,fbo[1]);glViewport(0,0,renderWidth,renderHeight);glBindVertexArray(vao[0]);}
     /** Draws one effect pass into the quality framebuffer; alpha below 1 blends it over the previous pass. */
     void draw(Pass pass,int w,int h,float x,float y,float motion,float[] touch,float time,float wake)throws IOException{
@@ -124,6 +150,7 @@ final class GlScene {
     void close(){
         for(int[] p:programs.values())glDeleteProgram(p[0]);programs.clear();glDeleteProgram(blur);
         glDeleteTextures(8,new int[]{layers[0].image,layers[1].image,layers[0].depth,layers[1].depth,scratch[0],scratch[1],neutralDepth,scratch[2]},0);
-        glDeleteFramebuffers(2,fbo,0);glDeleteBuffers(1,vbo,0);glDeleteVertexArrays(1,vao,0);
+        for(int t:oes)if(t!=0)glDeleteTextures(1,new int[]{t},0);if(video!=0)glDeleteProgram(video);
+        glDeleteFramebuffers(3,fbo,0);glDeleteBuffers(1,vbo,0);glDeleteVertexArrays(1,vao,0);
     }
 }
