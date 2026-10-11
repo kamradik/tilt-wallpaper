@@ -102,7 +102,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         status=text(this,"",13,REGULAR,SECONDARY);status.setGravity(Gravity.CENTER);status.setPadding(0,dp(14),0,dp(4));sheetBody.addView(status);
         LinearLayout actions=new LinearLayout(this);actions.setClipChildren(false);LinearLayout.LayoutParams acp=new LinearLayout.LayoutParams(-1,dp(52));acp.topMargin=dp(8);sheetBody.addView(actions,acp);
-        choose=capsule(this,tr("Выбрать фото","Choose photo"),false);actions.addView(choose,new LinearLayout.LayoutParams(0,-1,1));choose.setOnClickListener(v->{if(editable())pick(PICK_PHOTO);});
+        choose=capsule(this,tr("Фото или видео","Photo or video"),false);actions.addView(choose,new LinearLayout.LayoutParams(0,-1,1));choose.setOnClickListener(v->{if(editable())pick(PICK_PHOTO);});
         install=capsule(this,tr("Установить","Set wallpaper"),true);LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(0,-1,1);ip.leftMargin=dp(10);actions.addView(install,ip);install.setOnClickListener(v->{tick(v);install();});
 
         root.setOnApplyWindowInsetsListener((v,insets)->{
@@ -303,7 +303,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         try{startActivity(intent);}catch(ActivityNotFoundException e){try{startActivity(new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER));}catch(ActivityNotFoundException missing){swap(status,tr("Системная установка обоев недоступна.","System wallpaper picker is unavailable."));}}
     }
     void pick(int request){
-        Intent i=request==PICK_PHOTO&&Build.VERSION.SDK_INT>=33?new Intent("android.provider.action.PICK_IMAGES").setType("image/*"):new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
+        // Photo or video for the slot; the Android 13+ picker without a type offers both.
+        Intent i=request!=PICK_PHOTO?new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
+            :Build.VERSION.SDK_INT>=33?new Intent("android.provider.action.PICK_IMAGES")
+            :new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"image/*","video/*"}).addCategory(Intent.CATEGORY_OPENABLE);
         try{startActivityForResult(i,request);}catch(ActivityNotFoundException ex){try{startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE),request);}catch(ActivityNotFoundException e){swap(status,tr("Не найдено приложение выбора файлов.","No image picker is available."));}}
     }
     /** Drag on the preview tilts manually (touch effects receive the touch instead); a tap hides the interface. */
@@ -365,7 +368,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);io.shutdown();motion.close();renderer.close();thumbnails.close();for(Bitmap b:previews.values())b.recycle();super.onDestroy();}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if((request!=PICK_PHOTO&&request!=PICK_DEPTH)||result!=RESULT_OK||data==null||data.getData()==null)return;
         importing=true;choose.setEnabled(false);install.setEnabled(false);swap(status,tr("Подготовка изображения…","Preparing image…"));Uri uri=data.getData();Context app=getApplicationContext();String m=mediaSlot();
-        io.execute(()->{boolean ok=true;try{if(request==PICK_PHOTO){ImageStore.importImage(app,uri,m);DepthMapManager.prune(app);}else DepthMapManager.importDepth(app,uri,m);}catch(Exception|OutOfMemoryError e){ok=false;}
+        io.execute(()->{boolean ok=true;try{if(request==PICK_PHOTO){String type=app.getContentResolver().getType(uri);if(type!=null&&type.startsWith("video/"))ImageStore.importVideo(app,uri,m);else ImageStore.importImage(app,uri,m);DepthMapManager.prune(app);}else DepthMapManager.importDepth(app,uri,m);}catch(Exception|OutOfMemoryError e){ok=false;}
             final boolean success=ok;runOnUiThread(()->{if(isDestroyed())return;importing=false;choose.setEnabled(editable());install.setEnabled(true);
                 if(success){if(config.haptics)status.performHapticFeedback(HapticFeedbackConstants.CONFIRM);mediaChanged(request==PICK_DEPTH?tr("Используется твоя карта глубины","Using your depth map"):tr("Готово. Выбери эффект.","Ready. Pick an effect."));}
                 else{if(config.haptics)status.performHapticFeedback(HapticFeedbackConstants.REJECT);showError(request==PICK_DEPTH?"depth":"image");}});});
