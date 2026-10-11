@@ -17,11 +17,12 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     float margin=mix(.035,.13,params.y)*min(1.0,aspect*2.0);
     vec2 hs=vec2(aspect*.5,.5)-margin;
     float radius=min(.05,min(hs.x,hs.y)*.4);
-    float depth=mix(.05,.2,params.x);
+    // Recess depth relative to the opening: the reveal stays a band, the photo keeps most of the window.
+    float depth=mix(.025,.085,params.x);
     float aa=max(fwidth(p.y),1e-4);
 
     // Viewer: a central eye (so the recess reads as deep even flat) displaced by the tilt.
-    vec2 view=p*.7+tilt*vec2(1.0,1.0)*1.1;
+    vec2 view=p*.35+tilt*.5;
     // Light from the upper left, swinging with the tilt.
     vec2 light2=normalize(vec2(-.55,.85)-tilt*.9);
     vec3 L=normalize(vec3(light2,1.1));
@@ -75,7 +76,7 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     recess*=mix(1.0,.45,zf)*(1.0-.35*smoothstep(.85,1.0,zf));
 
     // Photo at the back: fills the opening with a little slack for parallax.
-    vec2 puv=back/(2.0*hs)*.94+.5;
+    vec2 puv=back/(2.0*hs)*.9+.5;
     vec3 pic=photo(puv,0.0);
     // Ambient occlusion along the back edge and the shadow the opening casts from the light.
     float inner=-sdfBack;
