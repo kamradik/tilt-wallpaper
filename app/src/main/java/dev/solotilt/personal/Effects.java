@@ -31,7 +31,7 @@ final class Effects {
         new Effect("light",1,0,"Живой свет","Dynamic Light","Луч и блики на рельефе фото следуют за наклоном.","A beam and surface glints follow your tilt.","Яркость","Brightness",.4f,"Тепло ↔ холод","Warm ↔ cold",.6f,"Резкость","Sharpen"),
         new Effect("holo",1,ANIMATED_SWITCH,"Голограмма","Holographic Foil","Радужный отлив на светлых участках и контурах.","Rainbow diffraction on highlights and edges.","Сила","Strength",.7f,"Порог","Threshold",.5f,"Микрорельеф","Micro-ridges"),
         new Effect("prism",1,0,"Призма","Spectral Prism","Контуры расщепляются в спектр при наклоне.","Edges split into a spectrum as you tilt.","Дисперсия","Dispersion",.65f,"Порог краёв","Edge threshold",.5f,"Блики граней","Facet glints"),
-        new Effect("diamond",1,ANIMATED,"Огонь бриллианта","Diamond Fire","Гранёные искры вспыхивают и переливаются.","Faceted sparks flash and shimmer.","Искры","Sparks",.8f,"Преломление","Refraction",.65f,null,null),
+        new Effect("bokeh",1,0,"Боке","Bokeh","Мягкий расфокус: огни расцветают кружками и плывут при наклоне.","Soft defocus: highlights bloom into discs that drift as you tilt.","Размытие","Defocus",.6f,"Огни","Lights",.55f,"Форма диафрагмы","Hexagon aperture"),
         new Effect("oil",1,ANIMATED,"Масляная плёнка","Oil Slick","Переливы тонкой плёнки, как бензин на воде.","Swirling thin-film iridescence.","Сила","Strength",.7f,"Блеск","Sheen",.5f,null,null),
         new Effect("glass",2,TOUCH,"Жидкое стекло","Liquid Glass","Тонкое стекло преломляет фото; касание пускает рябь.","Subtle glass refraction; touch to ripple.","Матовость","Frost",.45f,"Преломление","Refraction",.5f,null,null),
         new Effect("caustic",2,ANIMATED,"Под водой","Submerged","Каустика и рябь, будто фото лежит на дне бассейна.","Pool caustics and ripples over your photo.","Каустика","Caustics",.7f,"Глубина воды","Water depth",.55f,"Рябь","Ripples"),
@@ -40,11 +40,13 @@ final class Effects {
         new Effect("fluted",2,0,"Рифлёное стекло","Fluted Glass","Архитектурное стекло с рёбрами.","Architectural reeded glass.","Частота рёбер","Rib density",.65f,"Преломление","Refraction",.55f,null,null),
         new Effect("ice",2,0,"Иней","Frosted Ice","Морозные узоры нарастают от краёв.","Frost crystals grow in from the edges.","Иней","Frost",.7f,"Преломление","Refraction",.55f,null,null),
         new Effect("condensation",2,TOUCH|WIPE,"Запотевшее стекло","Condensation","Проведи пальцем, чтобы протереть стекло. Оно снова запотеет.","Swipe to wipe the fogged glass; it fogs up again.","Матовость","Fog",.75f,"Капли","Droplets",.5f,null,null),
+        new Effect("liquid",2,ANIMATED,"Жидкость","Liquid Level","Вода внизу экрана держит горизонт, как в настоящем стакане.","Water at the bottom of the screen stays level, like a real glass.","Уровень","Fill level",.45f,"Волны","Waves",.5f,"Пузырьки","Bubbles"),
         new Effect("depth",3,DEPTH,"Глубина","Depth Parallax","Объект отделяется от фона и двигается отдельно.","The subject separates from the background and moves on its own.","Сила","Strength",.5f,"Глубина","Depth",.6f,null,null),
         new Effect("shadow",3,DEPTH,"Парящий объект","Drop Shadow","Объект парит над фоном и отбрасывает тень.","The subject floats and casts a shadow.","Сдвиг","Lift",.65f,"Тень","Shadow",.5f,null,null),
         new Effect("pom",3,DEPTH,"Рельеф","Parallax Relief","Фото превращается в объёмный рельеф с тенями.","A ray-marched relief with self-shadowing.","Высота","Height",.7f,"Тени","Shadows",.6f,"Самозатенение","Self-shadowing"),
         new Effect("lenticular",3,DEPTH,"Стереооткрытка","Lenticular 3D","Как переливающаяся 3D-открытка с линзовым растром.","Like a lenticular 3D postcard.","Глубина","Depth",.65f,"Шаг линз","Lens pitch",.6f,"Блики линз","Lens glints"),
         new Effect("vertigo",3,DEPTH,"Вертиго","Dolly Zoom","Эффект Хичкока: фон уезжает, объект остаётся.","Hitchcock's dolly zoom: the background recedes, the subject stays.","Сила","Strength",.75f,"Хроматизм","Chromatic",.6f,"Цветная кайма","Color fringe"),
+        new Effect("window",3,0,"Окно","Window","Фото в глубокой нише: при наклоне видны стенки проёма.","Your photo in a deep recess; tilt to see its inner walls.","Глубина","Depth",.55f,"Рамка","Frame width",.4f,"Блик на раме","Frame glint"),
         new Effect("golden",4,0,"Золотой час","Golden Hour","Тёплый закатный свет и солнечный блик.","Warm sunset grade with a sun flare.","Сила","Strength",.75f,"Длина блика","Flare length",.6f,null,null),
         new Effect("aurora",4,ANIMATED,"Северное сияние","Aurora","Ленты сияния колышутся над фото.","Aurora curtains wave above your photo.","Яркость","Brightness",.7f,"Насыщенность","Saturation",.55f,null,null),
         new Effect("nebula",4,ANIMATED|DEPTH,"Туманность","Star Nebula","Космическая пыль и мерцающие звёзды за объектом.","Cosmic dust and twinkling stars behind the subject.","Туманность","Nebula",.75f,"Звёзды","Stars",.65f,null,null),
@@ -53,7 +55,7 @@ final class Effects {
     };
 
     /** Ids saved by earlier builds that now live under another id. */
-    static final Map<String,String> RENAMED=Map.of("foil","holo","sheen","holo");
+    static final Map<String,String> RENAMED=Map.of("foil","holo","sheen","holo","diamond","bokeh");
 
     static Effect get(String id){
         if(id!=null){id=RENAMED.getOrDefault(id,id);for(Effect e:ALL)if(e.id.equals(id))return e;}
