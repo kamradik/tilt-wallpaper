@@ -55,7 +55,7 @@ public final class AuthorActivity extends Activity {
         ObjectAnimator drift=ObjectAnimator.ofPropertyValuesHolder(backdrop,PropertyValuesHolder.ofFloat(View.SCALE_X,1.5f,1.8f),PropertyValuesHolder.ofFloat(View.SCALE_Y,1.5f,1.8f),PropertyValuesHolder.ofFloat(View.ROTATION,-6,6));
         drift.setDuration(16000);drift.setRepeatCount(ValueAnimator.INFINITE);drift.setRepeatMode(ValueAnimator.REVERSE);ambient=drift;
 
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);scroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setGravity(Gravity.CENTER);content.setClipChildren(false);scroll.addView(content,new ScrollView.LayoutParams(-1,-2));
 
         FrameLayout portrait=new FrameLayout(this);portrait.setClipChildren(false);content.addView(portrait,row(dp(132),dp(132),12));
@@ -150,7 +150,7 @@ public final class AuthorActivity extends Activity {
     }
     static String clock(int ms){int s=Math.max(0,ms)/1000;return String.format(Locale.ROOT,"%d:%02d",s/60,s%60);}
     private void releaseMusic(){if(player!=null){if(prepared){try{position=player.getCurrentPosition();}catch(IllegalStateException ignored){}}player.release();player=null;}prepared=false;abandonFocus();}
-    @Override protected void onResume(){super.onResume();resumed=true;if(ValueAnimator.areAnimatorsEnabled()){ambient.start();floatAnimation.start();}main.post(progress);if(enabled)prepareMusic();else updateMusic();}
+    @Override protected void onResume(){super.onResume();resumed=true;if(!still()){ambient.start();floatAnimation.start();}main.post(progress);if(enabled)prepareMusic();else updateMusic();}
     @Override protected void onPause(){resumed=false;ambient.cancel();floatAnimation.cancel();main.removeCallbacks(progress);releaseMusic();updateMusic();super.onPause();}
     @Override protected void onSaveInstanceState(Bundle b){b.putInt("position",player!=null&&prepared?player.getCurrentPosition():position);super.onSaveInstanceState(b);}
     @Override protected void onDestroy(){releaseMusic();super.onDestroy();}

@@ -21,7 +21,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     String slot=WallpaperConfig.HOME,previewKey;boolean resumed,ready,importing,hidden,dragging;float downX,downY,dragTiltX,dragTiltY;long labelTime;
     final Map<String,Bitmap> previews=new HashMap<>();
     final Handler main=new Handler(Looper.getMainLooper());final ExecutorService io=Executors.newSingleThreadExecutor();
-    FrameLayout root,catalog;LinearLayout header,sheetBody,strip,params,editing,lockCard,frame,catalogGrid;ScrollView sheet;Segmented screens;
+    FrameLayout root,stage,catalog;Curtain curtain;String ringShown;boolean entering;float catalogY,catalogLastY,catalogSpeed;long catalogTime;
+    LinearLayout header,sheetBody,strip,params,editing,lockCard,frame,catalogGrid;ScrollView sheet;Segmented screens;
     TextView angle,effectTitle,effectAbout,status,choose,install;ImageView heart;View dot;EditText search;
     final Tile[] tiles=new Tile[4];final List<TextView> chips=new ArrayList<>();int filter=-1; // -1 all, -2 favorites, else a category
     String tr(String ru,String en){return config.en()?en:ru;}
@@ -32,10 +33,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     String mediaSlot(){return config.separateLock&&WallpaperConfig.LOCK.equals(slot)?WallpaperConfig.LOCK:WallpaperConfig.HOME;}
 
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);config=WallpaperConfig.load(this);
+        super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);config=WallpaperConfig.load(this);Ios.reduceMotion(config.reduceMotion);
         if(state!=null)slot=state.getString("slot",slot);
         renderer=new RenderLoop(this,code->runOnUiThread(()->showError(code)));renderer.mode(WallpaperConfig.LOCK.equals(slot)?RenderLoop.SHOW_LOCK:RenderLoop.SHOW_HOME);
-        motion=new Motion(this,getDisplay(),(x,y,t)->{if(dragging)return;renderer.tilt(x,y,t);if(SystemClock.uptimeMillis()-labelTime>150){labelTime=SystemClock.uptimeMillis();runOnUiThread(()->angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f°","Tilt %.0f°"),Math.hypot(x,y))));}});
+        // Sensor thread: Ios.light coalesces to ~30 Hz and posts the glass redraw to the UI thread itself.
+        motion=new Motion(this,getDisplay(),(x,y,t)->{if(dragging)return;renderer.tilt(x,y,t);Ios.light(x-config.neutralX,y-config.neutralY);if(SystemClock.uptimeMillis()-labelTime>150){labelTime=SystemClock.uptimeMillis();runOnUiThread(()->angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f°","Tilt %.0f°"),Math.hypot(x,y))));}});
         renderer.sensorInfo(motion.description());thumbnails=new Thumbnails(this);
         build(state==null);
     }
@@ -43,13 +45,16 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     // ---------------------------------------------------------------- layout
     void build(boolean animate){
         root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);setContentView(root);
-        SurfaceView preview=new SurfaceView(this);root.addView(preview,new FrameLayout.LayoutParams(-1,-1));preview.getHolder().addCallback(this);
-        View shade=new View(this);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x99000000,0x00000000,0x00000000,0x80000000}));root.addView(shade,new FrameLayout.LayoutParams(-1,-1));
+        // Everything behind the catalog lives on a stage that recedes like the presenting view of an iOS sheet.
+        stage=new FrameLayout(this);stage.setClipChildren(false);root.addView(stage,new FrameLayout.LayoutParams(-1,-1));
+        SurfaceView preview=new SurfaceView(this);stage.addView(preview,new FrameLayout.LayoutParams(-1,-1));preview.getHolder().addCallback(this);
+        View shade=new View(this);shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x99000000,0x00000000,0x00000000,0x80000000}));stage.addView(shade,new FrameLayout.LayoutParams(-1,-1));
         root.setOnTouchListener(this::previewTouch);
+        curtain=new Curtain();root.addView(curtain,new FrameLayout.LayoutParams(-1,-1));
 
-        header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);root.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-        LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);header.addView(bar);
-        bar.addView(text(this,"Tilt",34,BOLD,LABEL),new LinearLayout.LayoutParams(0,-2,1));
+        header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setClipChildren(false);stage.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+        LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setClipChildren(false);header.addView(bar);
+        bar.addView(legible(text(this,"Tilt",34,BOLD,LABEL)),new LinearLayout.LayoutParams(0,-2,1));
         ImageView settings=circle(this,Glyph.GEAR,tr("Настройки","Settings"));bar.addView(settings,new LinearLayout.LayoutParams(dp(40),dp(40)));
         settings.setOnClickListener(v->{startActivity(new Intent(this,SettingsActivity.class));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);});
         ImageView author=new ImageView(this);author.setImageResource(R.drawable.author_avatar);author.setScaleType(ImageView.ScaleType.CENTER_CROP);author.setForeground(new Shape(0,-1).stroke(px(this,1.5f),0x66ffffff));
@@ -62,22 +67,23 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout chip=new LinearLayout(this);chip.setGravity(Gravity.CENTER_VERTICAL);chip.setBackground(glass(this,-1));chip.setPadding(dp(12),0,dp(14),0);
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(30));cp.topMargin=dp(10);header.addView(chip,cp);
         dot=new View(this);dot.setBackground(new Shape(motion.sensor==null?0xff8e8e93:GREEN,-1));LinearLayout.LayoutParams dotParams=new LinearLayout.LayoutParams(dp(7),dp(7));dotParams.rightMargin=dp(8);chip.addView(dot,dotParams);
-        angle=text(this,motion.sensor==null?tr("Веди пальцем по экрану","Drag on the screen"):tr("Наклони телефон","Tilt your phone"),13,SEMIBOLD,LABEL);angle.setFontFeatureSettings("tnum");chip.addView(angle);
+        angle=text(this,motion.sensor==null?tr("Веди пальцем по экрану","Drag on the screen"):tr("Наклони телефон","Tilt your phone"),13,SEMIBOLD,LABEL);angle.setFontFeatureSettings("tnum");chip.addView(legible(angle));
 
-        sheet=new ScrollView(this);sheet.setVerticalScrollBarEnabled(false);sheet.setOverScrollMode(View.OVER_SCROLL_NEVER);sheet.setBackground(new Shape(SHEET,px(this,30)).glass(Math.max(1,px(this,.7f))));
-        sheet.setOutlineProvider(ViewOutlineProvider.BACKGROUND);sheet.setClipToOutline(true);
-        root.addView(sheet,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
-        sheetBody=new LinearLayout(this);sheetBody.setOrientation(LinearLayout.VERTICAL);sheetBody.setPadding(dp(16),dp(8),dp(16),dp(16));sheet.addView(sheetBody);
+        // Secondary text sits on the sheet, so its glass lets through less light than a button's.
+        sheet=new Sheet();sheet.setVerticalScrollBarEnabled(false);sheet.setOverScrollMode(View.OVER_SCROLL_ALWAYS);sheet.setBackground(new Shape(SHEET,px(this,SHEET_RADIUS)).glass(Math.max(1,px(this,.7f))).legible(.06f));
+        sheet.setOutlineProvider(ViewOutlineProvider.BACKGROUND);sheet.setClipToOutline(true);sheet.setOnScrollChangeListener((v,x,y,ox,oy)->Ios.refract());
+        stage.addView(sheet,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
+        sheetBody=new LinearLayout(this);sheetBody.setOrientation(LinearLayout.VERTICAL);sheetBody.setClipChildren(false);sheetBody.setPadding(dp(16),dp(8),dp(16),dp(16));sheet.addView(sheetBody);
         LayoutTransition lt=new LayoutTransition();lt.enableTransitionType(LayoutTransition.CHANGING);lt.setDuration(SMOOTH.duration);sheetBody.setLayoutTransition(lt);
         View grabber=new View(this);grabber.setBackground(new Shape(0x66ebebf5,-1));LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(dp(36),dp(5));gp.gravity=Gravity.CENTER_HORIZONTAL;gp.bottomMargin=dp(12);sheetBody.addView(grabber,gp);
 
-        LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);sheetBody.addView(titleRow);
+        LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);titleRow.setClipChildren(false);sheetBody.addView(titleRow);
         effectTitle=text(this,"",22,BOLD,LABEL);titleRow.addView(effectTitle,new LinearLayout.LayoutParams(0,-2,1));
         heart=circle(this,Glyph.HEART,tr("В избранное","Add to favorites"));titleRow.addView(heart,new LinearLayout.LayoutParams(dp(38),dp(38)));heart.setOnClickListener(v->toggleFavorite(profile().effect,v));
         TextView all=capsule(this,tr("Все эффекты","All effects"),false);LinearLayout.LayoutParams allp=new LinearLayout.LayoutParams(-2,dp(38));allp.leftMargin=dp(8);titleRow.addView(all,allp);all.setOnClickListener(v->openCatalog());
         effectAbout=text(this,"",15,REGULAR,SECONDARY);effectAbout.setPadding(0,dp(4),0,dp(10));sheetBody.addView(effectAbout);
 
-        HorizontalScrollView stripScroll=new HorizontalScrollView(this);stripScroll.setHorizontalScrollBarEnabled(false);stripScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        HorizontalScrollView stripScroll=new HorizontalScrollView(this);stripScroll.setHorizontalScrollBarEnabled(false);stripScroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
         strip=new LinearLayout(this);stripScroll.addView(strip);sheetBody.addView(stripScroll,new LinearLayout.LayoutParams(-1,dp(116)));
 
         // Lock tab without its own wallpaper: one switch, the editing controls hidden.
@@ -95,7 +101,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         frame=group(this,editing,tr("Кадр","Framing"));
 
         status=text(this,"",13,REGULAR,SECONDARY);status.setGravity(Gravity.CENTER);status.setPadding(0,dp(14),0,dp(4));sheetBody.addView(status);
-        LinearLayout actions=new LinearLayout(this);LinearLayout.LayoutParams acp=new LinearLayout.LayoutParams(-1,dp(52));acp.topMargin=dp(8);sheetBody.addView(actions,acp);
+        LinearLayout actions=new LinearLayout(this);actions.setClipChildren(false);LinearLayout.LayoutParams acp=new LinearLayout.LayoutParams(-1,dp(52));acp.topMargin=dp(8);sheetBody.addView(actions,acp);
         choose=capsule(this,tr("Выбрать фото","Choose photo"),false);actions.addView(choose,new LinearLayout.LayoutParams(0,-1,1));choose.setOnClickListener(v->{if(editable())pick(PICK_PHOTO);});
         install=capsule(this,tr("Установить","Set wallpaper"),true);LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(0,-1,1);ip.leftMargin=dp(10);actions.addView(install,ip);install.setOnClickListener(v->{tick(v);install();});
 
@@ -118,7 +124,9 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     /** Rebuilds everything that depends on the slot, the selected effect or its parameters. */
     void refresh(){
         WallpaperConfig.Profile p=profile();Effects.Effect e=p.effect();boolean en=config.en(),edit=editable();
-        effectTitle.setText(e.name(en));effectAbout.setText(e.about(en));
+        // A new effect crossfades its name in; the first fill just sets it.
+        if(effectTitle.getText().length()==0){effectTitle.setText(e.name(en));effectAbout.setText(e.about(en));}else{swap(effectTitle,e.name(en));swap(effectAbout,e.about(en));}
+        Ios.backdropFrame(p.scale,p.cropX,p.cropY);
         boolean fav=config.isFavorite(e.id);heart.setImageDrawable(new Glyph(this,fav?Glyph.HEART_FILL:Glyph.HEART,fav?0xffff375f:LABEL,19));heart.setContentDescription(fav?tr("Убрать из избранного","Remove from favorites"):tr("В избранное","Add to favorites"));
         heart.setVisibility(edit?View.VISIBLE:View.GONE);
         buildStrip();
@@ -153,6 +161,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     void buildStrip(){
         strip.removeAllViews();LinkedHashSet<String> order=new LinkedHashSet<>(config.favorites);order.addAll(config.recents);for(Effects.Effect e:Effects.ALL)order.add(e.id);
         for(String id:order){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(72),-1);lp.rightMargin=dp(8);strip.addView(card(Effects.get(id),dp(72),false),lp);}
+        ringShown=editable()?profile().effect:null;
     }
     /** Effect card: preview rendered on the slot's photo, name, selection ring. */
     View card(Effects.Effect e,int width,boolean large){
@@ -162,13 +171,19 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         Bitmap b=previews.get(e.id);if(b!=null)image.setImageBitmap(b);image.setTag("preview:"+e.id);
         box.addView(image,new FrameLayout.LayoutParams(-1,-1));
         boolean selected=e.id.equals(profile().effect)&&editable();
-        if(selected)box.setForeground(new Shape(0,radius).stroke(px(this,2.5f),LABEL));
+        if(selected)ring(box,radius,!large&&!e.id.equals(ringShown));
         if(large&&config.isFavorite(e.id)){ImageView h=new ImageView(this);h.setImageDrawable(new Glyph(this,Glyph.HEART_FILL,0xffff375f,16));h.setBackground(new Shape(0x99000000,-1));h.setScaleType(ImageView.ScaleType.CENTER);FrameLayout.LayoutParams hp=new FrameLayout.LayoutParams(dp(28),dp(28),Gravity.TOP|Gravity.END);hp.setMargins(0,dp(6),dp(6),0);box.addView(h,hp);}
         card.addView(box,new LinearLayout.LayoutParams(-1,large?Math.round(width*1.45f):dp(86)));
         TextView name=text(this,e.name(config.en()),large?15:11,large?SEMIBOLD:MEDIUM,selected?LABEL:0xd9ffffff);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);name.setPadding(dp(2),dp(5),dp(2),0);if(!large)name.setGravity(Gravity.CENTER);card.addView(name);
         if(large){TextView cat=text(this,e.category(config.en()),13,REGULAR,SECONDARY);cat.setPadding(dp(2),dp(1),0,0);card.addView(cat);}
-        card.setOnClickListener(v->{tick(v);selectEffect(e.id);if(catalog!=null&&catalog.getParent()!=null)closeCatalog();});
+        card.setOnClickListener(v->{tick(v);if(large&&!selected&&editable())ring(box,radius,true);selectEffect(e.id);if(catalog!=null&&catalog.getParent()!=null)closeCatalog();});
         return pressable(card);
+    }
+    /** Selection ring; a newly selected card pops its preview on a spring while the ring fades in around it. */
+    void ring(FrameLayout box,float radius,boolean animate){
+        Shape ring=new Shape(0,radius).stroke(px(this,2.5f),LABEL);box.setForeground(ring);if(!animate)return;
+        ring.setAlpha(0);Ios.animate(null,0,1,SMOOTH,a->ring.setAlpha(Math.round(255*Math.min(1,(float)a.getAnimatedValue()))));
+        View image=box.getChildAt(0);if(!still()){image.setScaleX(.88f);image.setScaleY(.88f);}spring(image,POP).scaleX(1).scaleY(1);
     }
     void refreshPreviews(){
         String key=mediaSlot()+":"+DepthMapManager.key(this,mediaSlot());
@@ -182,31 +197,60 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     void openCatalog(){
         if(catalog==null)buildCatalog();else search.setText("");
         if(catalog.getParent()==null)root.addView(catalog,new FrameLayout.LayoutParams(-1,-1));
-        fillCatalog();catalog.setTranslationY(root.getHeight());spring(catalog,SMOOTH).translationY(0);updateBack();
+        entering=true;fillCatalog();entering=false;
+        catalog.setTranslationY(root.getHeight());present();spring(catalog,SMOOTH).translationY(0).setUpdateListener(a->present());updateBack();
     }
     void closeCatalog(){
         if(catalog==null||catalog.getParent()==null)return;hideKeyboard();
-        spring(catalog,SNAPPY).translationY(root.getHeight()).withEndAction(()->{root.removeView(catalog);updateBack();});
+        spring(catalog,SNAPPY).translationY(root.getHeight()).setUpdateListener(a->present()).withEndAction(()->{root.removeView(catalog);present();updateBack();});
+    }
+    /** iOS sheet presentation, driven by the catalog's position: the stage recedes to 94%, rounds its corners and dims. */
+    void present(){
+        float h=Math.max(1,root.getHeight()),p=catalogOpen()?clamp(1-catalog.getTranslationY()/h,0,1):0,s=still()?1:1-.06f*p;
+        stage.setPivotX(root.getWidth()/2f);stage.setPivotY(h/2);stage.setScaleX(s);stage.setScaleY(s);curtain.set(p);
+    }
+    /** Swipe down on the catalog's header: follows the finger (rubber band upward), then closes or springs back. */
+    boolean catalogDrag(View v,MotionEvent e){
+        float y=e.getRawY();
+        switch(e.getActionMasked()){
+            case MotionEvent.ACTION_DOWN->{catalogY=catalogLastY=y;catalogTime=e.getEventTime();catalogSpeed=0;catalog.animate().cancel();}
+            case MotionEvent.ACTION_MOVE->{
+                float dy=y-catalogY;catalog.setTranslationY(dy>0?dy:rubber(dy,dp(90)));present();
+                float dt=Math.max(1,e.getEventTime()-catalogTime)/1000f;catalogSpeed=.6f*(y-catalogLastY)/dt+.4f*catalogSpeed;catalogLastY=y;catalogTime=e.getEventTime();
+            }
+            case MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->{
+                float ty=catalog.getTranslationY();
+                boolean moved=Math.abs(y-catalogY)>dp(8);
+                if(moved&&(ty>root.getHeight()*.22f||catalogSpeed>dp(800)&&ty>dp(12)))closeCatalog();else spring(catalog,BOUNCY).translationY(0).setUpdateListener(a->present());
+            }
+        }
+        return true;
     }
     void buildCatalog(){
-        catalog=new FrameLayout(this);catalog.setBackgroundColor(Color.BLACK);catalog.setClickable(true);
+        catalog=new FrameLayout(this);catalog.setBackground(new Shape(0xd90c0c0e,px(this,SHEET_RADIUS)).glass(Math.max(1,px(this,.7f))).legible(.04f));catalog.setClickable(true);
+        catalog.setOutlineProvider(ViewOutlineProvider.BACKGROUND);catalog.setClipToOutline(true);
         LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);catalog.addView(column,new FrameLayout.LayoutParams(-1,-1));
-        catalog.setOnApplyWindowInsetsListener((v,i)->{Insets bars=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());column.setPadding(bars.left,bars.top,bars.right,bars.bottom);return i;});
-        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);head.setPadding(dp(20),dp(12),dp(16),0);column.addView(head);
+        // A sheet card: starts just below the status bar, so the receding stage shows above it.
+        catalog.setOnApplyWindowInsetsListener((v,i)->{Insets bars=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());
+            column.setPadding(bars.left,0,bars.right,bars.bottom);FrameLayout.LayoutParams lp=(FrameLayout.LayoutParams)v.getLayoutParams();int top=bars.top+dp(10);
+            if(lp!=null&&lp.topMargin!=top){lp.topMargin=top;v.post(()->v.setLayoutParams(lp));}return i;});
+        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.VERTICAL);top.setClipChildren(false);column.addView(top);top.setOnTouchListener(this::catalogDrag);
+        View grabber=new View(this);grabber.setBackground(new Shape(0x66ebebf5,-1));LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(dp(36),dp(5));gp.gravity=Gravity.CENTER_HORIZONTAL;gp.topMargin=dp(8);top.addView(grabber,gp);
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);head.setClipChildren(false);head.setPadding(dp(20),dp(6),dp(16),0);top.addView(head);
         head.addView(text(this,tr("Эффекты","Effects"),34,BOLD,LABEL),new LinearLayout.LayoutParams(0,-2,1));
         ImageView close=circle(this,Glyph.CLOSE,tr("Закрыть","Close"));head.addView(close,new LinearLayout.LayoutParams(dp(36),dp(36)));close.setOnClickListener(v->closeCatalog());
         LinearLayout searchBox=new LinearLayout(this);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(40));sp.setMargins(dp(16),dp(12),dp(16),0);column.addView(searchBox,sp);
         search=searchField(this,tr("Поиск эффектов","Search effects"),searchBox);
         search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int n){}public void onTextChanged(CharSequence s,int a,int b,int n){fillCatalog();}public void afterTextChanged(android.text.Editable s){}});
         HorizontalScrollView chipScroll=new HorizontalScrollView(this);chipScroll.setHorizontalScrollBarEnabled(false);chipScroll.setClipToPadding(false);chipScroll.setPadding(dp(16),0,dp(16),0);
-        LinearLayout chipRow=new LinearLayout(this);chipScroll.addView(chipRow);LinearLayout.LayoutParams crp=new LinearLayout.LayoutParams(-1,dp(36));crp.topMargin=dp(12);column.addView(chipScroll,crp);
+        chipScroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);LinearLayout chipRow=new LinearLayout(this);chipRow.setClipChildren(false);chipScroll.addView(chipRow);LinearLayout.LayoutParams crp=new LinearLayout.LayoutParams(-1,dp(36));crp.topMargin=dp(12);column.addView(chipScroll,crp);
         String[] cats=config.en()?Effects.CATEGORY_EN:Effects.CATEGORY_RU;chips.clear();
         for(int i=-2;i<cats.length;i++){
             final int f=i==-2?-1:i==-1?-2:i;String label=f==-1?tr("Все","All"):f==-2?tr("Избранное","Favorites"):cats[f];
             TextView c=chip(this,label);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-1);lp.rightMargin=dp(8);chipRow.addView(c,lp);chips.add(c);c.setTag(f);
             c.setOnClickListener(v->{tick(v);filter=f;fillCatalog();});
         }
-        ScrollView scroll=new ScrollView(this);scroll.setVerticalScrollBarEnabled(false);column.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        ScrollView scroll=new ScrollView(this);scroll.setVerticalScrollBarEnabled(false);scroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);column.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         catalogGrid=new LinearLayout(this);catalogGrid.setOrientation(LinearLayout.VERTICAL);catalogGrid.setPadding(dp(16),dp(14),dp(16),dp(24));scroll.addView(catalogGrid);
     }
     void fillCatalog(){
@@ -218,7 +262,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout line=null;
         for(int i=0;i<found.size();i++){
             if(i%2==0){line=new LinearLayout(this);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(18);catalogGrid.addView(line,lp);}
-            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(width,-2);if(i%2==1)cp.leftMargin=dp(12);line.addView(card(found.get(i),width,true),cp);
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(width,-2);if(i%2==1)cp.leftMargin=dp(12);View card=card(found.get(i),width,true);line.addView(card,cp);
+            if(i<12)appear(card,i,!entering);  // only what fits the first screens; the rest is below the fold
         }
         applyHaptics(catalog);
     }
@@ -232,7 +277,12 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         Effects.Effect e=Effects.get(id);
         swap(status,e.has(Effects.DEPTH)?tr("Глубина готовится по фото…","Estimating depth from your photo…"):e.has(Effects.WIPE)?tr("Проведи пальцем по фото","Swipe across the photo"):e.has(Effects.TOUCH)?tr("Коснись фото","Touch the photo"):tr("Наклони телефон","Tilt your phone"));
     }
-    void toggleFavorite(String id,View v){config.toggleFavorite(id);tick(v);v.setScaleX(.7f);v.setScaleY(.7f);spring(v,BOUNCY).scaleX(1).scaleY(1);persist();refresh();}
+    /** SF Symbols bounce: the heart is squeezed, then overshoots on a loose spring; a new favorite also tips sideways. */
+    void toggleFavorite(String id,View v){
+        config.toggleFavorite(id);tick(v);persist();refresh();boolean fav=config.isFavorite(id);
+        if(!still()){v.setScaleX(.62f);v.setScaleY(.62f);v.setRotation(fav?-14:0);}
+        spring(v,POP).scaleX(1).scaleY(1).rotation(0).translationX(0).translationY(0).alpha(1);
+    }
     void setSeparateLock(boolean on){
         config.separateLock=on;
         if(on){config.lock.copyFrom(config.home);io.execute(()->{try{ImageStore.copyMedia(getApplicationContext(),WallpaperConfig.HOME,WallpaperConfig.LOCK);}catch(Exception e){runOnUiThread(()->swap(status,tr("Не удалось скопировать фото","Could not copy the photo")));}runOnUiThread(()->{if(!isDestroyed()){previewKey=null;refresh();loadTileThumbnail();}});});}
@@ -244,7 +294,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         ImageStore.useCustom(this,m);mediaChanged(tr("Твоё фото","Your photo"));
     }
     void mediaChanged(String message){renderer.reload();previewKey=null;refresh();swap(status,message);loadTileThumbnail();}
-    void loadTileThumbnail(){String m=mediaSlot();int side=dp(74);io.execute(()->{Bitmap b=null;try{b=ImageStore.thumbnail(getApplicationContext(),m,side);}catch(Exception|OutOfMemoryError ignored){}final Bitmap t=b;runOnUiThread(()->{if(!isDestroyed())tiles[0].setImage(t);});});}
+    void loadTileThumbnail(){String m=mediaSlot();int side=dp(74);View host=root;Context app=getApplicationContext();io.execute(()->{Bitmap b=null;try{b=ImageStore.thumbnail(app,m,side);}catch(Exception|OutOfMemoryError ignored){}final Bitmap t=b;
+        // Glass refracts what the wallpaper shows: the saved photo, or the selected preset drawn small.
+        try{if(t!=null&&ImageStore.isCustom(app,m))Ios.backdrop(host,t);else{Bitmap preset=ImageStore.preset(ImageStore.presetIndex(app,m),side/720f);Ios.backdrop(host,preset);preset.recycle();}}catch(RuntimeException|OutOfMemoryError ignored){}
+        runOnUiThread(()->{if(!isDestroyed())tiles[0].setImage(t);});});}
     void install(){
         saveNow();Intent intent=new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,new ComponentName(this,TiltWallpaper.class));
         try{startActivity(intent);}catch(ActivityNotFoundException e){try{startActivity(new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER));}catch(ActivityNotFoundException missing){swap(status,tr("Системная установка обоев недоступна.","System wallpaper picker is unavailable."));}}
@@ -262,7 +315,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 float dx=e.getX()-downX,dy=e.getY()-downY;
                 if(touchEffect){renderer.touch(e.getX()/w,e.getY()/h,true);break;}
                 if(!dragging&&Math.hypot(dx,dy)>dp(10))dragging=true;
-                if(dragging){dragTiltX=FoldMath.clamp(dx/px(this,3),-80,80);dragTiltY=FoldMath.clamp(-dy/px(this,3),-80,80);renderer.tilt(dragTiltX+config.neutralX,dragTiltY+config.neutralY);angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f° · пальцем","Tilt %.0f° · finger"),Math.hypot(dragTiltX,dragTiltY)));}
+                if(dragging){dragTiltX=FoldMath.clamp(dx/px(this,3),-80,80);dragTiltY=FoldMath.clamp(-dy/px(this,3),-80,80);renderer.tilt(dragTiltX+config.neutralX,dragTiltY+config.neutralY);Ios.light(dragTiltX,dragTiltY);angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f° · пальцем","Tilt %.0f° · finger"),Math.hypot(dragTiltX,dragTiltY)));}
             }
             case MotionEvent.ACTION_UP->{if(!dragging&&Math.hypot(e.getX()-downX,e.getY()-downY)<dp(10)&&!touchEffect)setHidden(!hidden);dragging=false;}
             case MotionEvent.ACTION_CANCEL->dragging=false;
@@ -273,7 +326,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     // ---------------------------------------------------------------- persistence & feedback
     final Runnable save=()->config.save(this);
-    void persist(){renderer.settings(config);main.removeCallbacks(save);main.postDelayed(save,150);}
+    void persist(){renderer.settings(config);WallpaperConfig.Profile p=profile();Ios.backdropFrame(p.scale,p.cropX,p.cropY);main.removeCallbacks(save);main.postDelayed(save,150);}
     void saveNow(){main.removeCallbacks(save);config.save(this);}
     void tick(View v){if(config.haptics)v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);}
     void applyHaptics(View v){if(v==null)return;v.setHapticFeedbackEnabled(config.haptics);if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++)applyHaptics(((ViewGroup)v).getChildAt(i));}
@@ -304,7 +357,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     @Override protected void onResume(){
         super.onResume();resumed=true;
         // Settings may have changed in SettingsActivity.
-        WallpaperConfig latest=WallpaperConfig.load(this);
+        WallpaperConfig latest=WallpaperConfig.load(this);Ios.reduceMotion(latest.reduceMotion);
         if(!latest.json().equals(config.json())){boolean language=!latest.language.equals(config.language);config=latest;renderer.settings(config);if(language){recreate();return;}refresh();rebuildFraming();applyHaptics(root);}
         loadTileThumbnail();update();
     }
@@ -318,6 +371,54 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 else{if(config.haptics)status.performHapticFeedback(HapticFeedbackConstants.REJECT);showError(request==PICK_DEPTH?"depth":"image");}});});
     }
 
+    /** The effect sheet. Pulled by its top edge, or anywhere while scrolled to the top, it follows the finger on a
+     *  rubber band; let go it springs back, or past a third of its height (or flung) it tucks the interface away. */
+    final class Sheet extends ScrollView {
+        final int slop=ViewConfiguration.get(MainActivity.this).getScaledTouchSlop();float startX,startY,localY,lastY,speed;long lastTime;boolean pulling;
+        Sheet(){super(MainActivity.this);}
+        boolean shouldPull(MotionEvent e){
+            float dx=e.getRawX()-startX,dy=e.getRawY()-startY;
+            return !hidden&&Math.abs(dy)>slop&&Math.abs(dy)>Math.abs(dx)*1.3f&&(dy>0&&getScrollY()==0||localY<dp(44));
+        }
+        void begin(MotionEvent e){pulling=true;startY=lastY=e.getRawY();lastTime=e.getEventTime();speed=0;animate().cancel();getParent().requestDisallowInterceptTouchEvent(true);}
+        @Override public boolean onInterceptTouchEvent(MotionEvent e){
+            if(e.getActionMasked()==MotionEvent.ACTION_DOWN){startX=e.getRawX();startY=e.getRawY();localY=e.getY();pulling=false;}
+            else if(e.getActionMasked()==MotionEvent.ACTION_MOVE&&!pulling&&shouldPull(e)){begin(e);return true;}
+            return pulling||super.onInterceptTouchEvent(e);
+        }
+        @Override public boolean onTouchEvent(MotionEvent e){
+            int action=e.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN){startX=e.getRawX();startY=e.getRawY();localY=e.getY();pulling=false;}
+            if(!pulling&&action==MotionEvent.ACTION_MOVE&&shouldPull(e)){
+                // Hand the gesture over from scrolling: the scroll view gets a cancel so it drops its own drag state.
+                MotionEvent cancel=MotionEvent.obtain(e);cancel.setAction(MotionEvent.ACTION_CANCEL);super.onTouchEvent(cancel);cancel.recycle();begin(e);
+            }
+            if(!pulling)return super.onTouchEvent(e);
+            float y=e.getRawY(),dy=y-startY;
+            if(action==MotionEvent.ACTION_MOVE){
+                setTranslationY(dy>0?rubber(dy,getHeight()*1.6f):rubber(dy,dp(60)));
+                float dt=Math.max(1,e.getEventTime()-lastTime)/1000f;speed=.6f*(y-lastY)/dt+.4f*speed;lastY=y;lastTime=e.getEventTime();
+            }else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
+                pulling=false;float ty=getTranslationY();
+                if(action==MotionEvent.ACTION_UP&&(ty>getHeight()*.3f||speed>dp(900)&&ty>dp(16)))setHidden(true);else spring(this,BOUNCY).translationY(0);
+            }
+            return true;
+        }
+        @Override public boolean performClick(){return super.performClick();}
+    }
+    /** Behind the presented catalog: black outside the receding stage's rounded card, and a dim over it. */
+    final class Curtain extends View {
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);final Path path=new Path();final RectF card=new RectF();float progress;
+        Curtain(){super(MainActivity.this);setVisibility(GONE);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
+        void set(float p){if(p==progress)return;progress=p;setVisibility(p>.001f?VISIBLE:GONE);invalidate();}
+        @Override protected void onDraw(Canvas c){
+            float w=getWidth(),h=getHeight(),s=stage.getScaleX(),r=px(MainActivity.this,14)*progress;
+            card.set(w/2-w*s/2,h/2-h*s/2,w/2+w*s/2,h/2+h*s/2);
+            path.reset();path.setFillType(Path.FillType.EVEN_ODD);path.addRect(0,0,w,h,Path.Direction.CW);path.addRoundRect(card,r,r,Path.Direction.CW);
+            paint.setColor(Color.BLACK);c.drawPath(path,paint);paint.setColor(Color.argb(Math.round(110*progress),0,0,0));c.drawRoundRect(card,r,r,paint);
+        }
+    }
+
     /** Wallpaper swatch: continuous-corner thumbnail with the iOS selection ring drawn outside a small gap. */
     final class Tile extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG),ring=new Paint(Paint.ANTI_ALIAS_FLAG);final Path path=new Path(),outer=new Path();final RectF box=new RectF();
@@ -325,8 +426,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         Tile(Bitmap image){super(MainActivity.this);setClickable(true);setFocusable(true);ring.setStyle(Paint.Style.STROKE);ring.setColor(LABEL);setImage(image);}
         void setImage(Bitmap next){image=next;paint.setShader(null);invalidate();}
         void setSelectedAnimated(boolean value){
-            if(value==isSelected()&&animator!=null)return;setSelected(value);if(animator!=null)animator.cancel();
-            animator=android.animation.ValueAnimator.ofFloat(selection,value?1:0);animator.setInterpolator(BOUNCY);animator.setDuration(BOUNCY.duration);animator.addUpdateListener(a->{selection=(float)a.getAnimatedValue();invalidate();});animator.start();
+            if(value==isSelected()&&animator!=null)return;setSelected(value);
+            animator=Ios.animate(animator,selection,value?1:0,BOUNCY,a->{selection=(float)a.getAnimatedValue();invalidate();});
         }
         @Override protected void onMeasure(int w,int h){int width=MeasureSpec.getSize(w);setMeasuredDimension(width,Math.round(width*1.42f));}
         @Override protected void onDraw(Canvas c){

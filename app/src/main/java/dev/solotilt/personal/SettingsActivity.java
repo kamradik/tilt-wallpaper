@@ -17,16 +17,17 @@ public final class SettingsActivity extends Activity {
     int dp(float n){return Ios.dp(this,n);}
 
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);config=WallpaperConfig.load(this);
+        super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);config=WallpaperConfig.load(this);Ios.reduceMotion(config.reduceMotion);
         motion=new Motion(this,getDisplay(),(x,y,t)->{rawX=x;rawY=y;});
         FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);setContentView(root);
-        ScrollView scroll=new ScrollView(this);scroll.setVerticalScrollBarEnabled(false);root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+        ScrollView scroll=new ScrollView(this);scroll.setVerticalScrollBarEnabled(false);scroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);scroll.addView(list);
         LinearLayout nav=new LinearLayout(this);nav.setGravity(Gravity.CENTER_VERTICAL);root.addView(nav,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
         ImageView back=circle(this,Glyph.BACK,tr("Назад","Back"));back.setOnClickListener(v->finish());nav.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
         root.setOnApplyWindowInsetsListener((v,i)->{Insets bars=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
             nav.setPadding(dp(16)+bars.left,bars.top+dp(8),dp(16)+bars.right,dp(8));list.setPadding(dp(16)+bars.left,bars.top+dp(64),dp(16)+bars.right,bars.bottom+dp(32));return i;});
         build();
+        if(state==null)for(int i=0;i<list.getChildCount();i++)rise(list.getChildAt(i),Math.min(i,7));  // the list settles in, as when a page is pushed
     }
     void build(){
         list.removeAllViews();
@@ -40,7 +41,7 @@ public final class SettingsActivity extends Activity {
         row(this,motionCard,tr("Нейтраль — как сейчас","Neutral — current pose"),pressable(neutral));
         TextView resetNeutral=text(this,tr("Сбросить","Reset"),17,REGULAR,BLUE);resetNeutral.setClickable(true);resetNeutral.setOnClickListener(v->{config.neutralX=config.neutralY=0;save();});
         row(this,motionCard,tr("Нейтраль — экраном вверх","Neutral — face up"),pressable(resetNeutral));
-        toggle(motionCard,tr("Меньше движения","Reduce Motion"),config.reduceMotion,on->config.reduceMotion=on);
+        toggle(motionCard,tr("Меньше движения","Reduce Motion"),config.reduceMotion,on->{config.reduceMotion=on;Ios.reduceMotion(on);});
         footer(this,list,tr("«Нейтраль» — положение телефона, при котором картинка ровная. Удобно, если держишь телефон под углом.","Neutral is the pose where the picture sits flat — handy if you usually hold the phone at an angle."));
 
         LinearLayout touchCard=group(this,list,tr("Касания","Touch"));
