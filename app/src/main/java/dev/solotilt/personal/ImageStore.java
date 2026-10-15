@@ -28,7 +28,13 @@ final class ImageStore {
     static long revision(Context c,String slot){return prefs(c).getLong(key("revision",slot),0);}
     // Every media change (photo, preset, video) bumps "revision"; the "video" kind flag is written in the same edit,
     // so it is deliberately not a reload key: listening to both would prepare twice per import.
-    static boolean isRevisionKey(String key){return key!=null&&(key.startsWith("revision")||key.startsWith("depth_revision"));}
+    // "video_revision" is bumped by playback-mode changes (Tilt Scrub): engines reload, but the media key and with it the
+    // poster, depth map and any imported depth map stay valid.
+    static boolean isRevisionKey(String key){return key!=null&&(key.startsWith("revision")||key.startsWith("depth_revision")||key.startsWith("video_revision"));}
+    /** Tilt Scrub for the slot's video: no playback, the frame follows the tilt. The preference outlives media changes. */
+    static boolean isScrub(Context c,String slot){return prefs(c).getBoolean(key("scrub",slot),false);}
+    /** Turns Tilt Scrub on or off and bumps the slot's video revision, so running engines reload (a preview RenderLoop needs reload()). */
+    static void setScrub(Context c,String slot,boolean on){prefs(c).edit().putBoolean(key("scrub",slot),on).putLong(key("video_revision",slot),System.nanoTime()).apply();}
     /** A video slot plays videoFile and keeps its poster frame as the slot photo, so stills, thumbnails and depth need no video path. */
     static boolean isVideo(Context c,String slot){return prefs(c).getBoolean(key("video",slot),false)&&isCustom(c,slot)&&videoFile(c,slot).isFile();}
     static String videoName(String slot){return WallpaperConfig.LOCK.equals(slot)?"video_lock.mp4":"video.mp4";}
@@ -41,23 +47,22 @@ final class ImageStore {
         if(durationMs>MAX_VIDEO_MS)return "The video is longer than 3 minutes";
         return null;
     }
+    /** Imports the whole clip (see the trimming overload); longer than 3 minutes is refused, not cut. */
+    static void importVideo(Context c,Uri uri,String slot)throws IOException{importVideo(c,uri,slot,0,-1);}
     /**
-     * Copies a clip into private storage for the slot; call off the main thread. The copy is validated, its first sync
-     * frame becomes the slot photo (poster), then the clip replaces the old one by rename, so a running player keeps
-     * reading the previous file until the revision bump makes engines reload. Throws IOException with a readable message.
+     * Imports [startUs,endUs] of a clip into private storage for the slot; endUs<=0 means to the end. Call off the main
+     * thread. VideoImport.remux keeps only the video track, cut from the sync frame at or before startUs, and validates
+     * it; its first frame becomes the slot photo (poster), then the clip replaces the old one by rename, so a running
+     * player keeps reading the previous file until the revision bump makes engines reload. Throws IOException with a
+     * readable message.
      */
-    static void importVideo(Context c,Uri uri,String slot)throws IOException{
+    static void importVideo(Context c,Uri uri,String slot,long startUs,long endUs)throws IOException{
         File target=videoFile(c,slot),temp=new File(c.getFilesDir(),target.getName()+".part");Bitmap poster=null;
         try{
-            long bytes=0;
-            try(InputStream in=c.getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(temp)){
-                if(in==null)throw new IOException("The video cannot be opened");byte[] buffer=new byte[65536];int n;
-                while((n=in.read(buffer))!=-1){bytes+=n;if(bytes>MAX_VIDEO_BYTES)throw new IOException(videoProblem(true,1,bytes));out.write(buffer,0,n);}
-            }
+            VideoImport.remux(c,uri,startUs,endUs,temp);
             try(MediaMetadataRetriever r=new MediaMetadataRetriever()){
                 r.setDataSource(temp.getPath());
-                String problem=videoProblem("yes".equals(r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO)),number(r,MediaMetadataRetriever.METADATA_KEY_DURATION),bytes);
-                if(problem!=null)throw new IOException(problem);
+                if(!"yes".equals(r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO)))throw new IOException(videoProblem(false,1,1));
                 int w=(int)number(r,MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH),h=(int)number(r,MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
                 if(number(r,MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)%180!=0){int t=w;w=h;h=t;} // the retriever returns upright frames
                 float scale=w>0&&h>0?Math.min(1,2048f/Math.max(w,h)):1;
@@ -100,7 +105,7 @@ final class ImageStore {
                 finally{if(temp.exists()&&!temp.delete())android.util.Log.w("SoloVideo","Cannot delete "+temp);}
             }else if(clip.exists()&&!clip.delete())android.util.Log.w("SoloVideo","Cannot delete "+clip);
         }
-        prefs(c).edit().putBoolean(key("custom",to),isCustom(c,from)).putBoolean(key("video",to),video).putInt(key("preset",to),presetIndex(c,from)).putLong(key("revision",to),System.nanoTime()).apply();
+        prefs(c).edit().putBoolean(key("custom",to),isCustom(c,from)).putBoolean(key("video",to),video).putBoolean(key("scrub",to),isScrub(c,from)).putInt(key("preset",to),presetIndex(c,from)).putLong(key("revision",to),System.nanoTime()).apply();
     }
     static Bitmap load(Context c,String slot)throws IOException{
         if(isCustom(c,slot)){

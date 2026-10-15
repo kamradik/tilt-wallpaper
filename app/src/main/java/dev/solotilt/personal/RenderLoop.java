@@ -129,7 +129,7 @@ final class RenderLoop {
             for(int i=0;i<2;i++){
                 if(!want[i])continue;String slot=mediaSlot(i);keys[i]=DepthMapManager.key(context,slot);
                 // A video slot's photo is its poster frame: it is the still fallback, the first frame shown and the depth source.
-                if(ImageStore.isVideo(context,slot))videos[i]=keys[i];
+                if(ImageStore.isVideo(context,slot))videos[i]=keys[i]+(ImageStore.isScrub(context,slot)?VideoPlayer.SCRUB:""); // Tilt Scrub: another key, another player
                 if(keys[i].equals(loaded[i])&&!missingDepth[i])continue;
                 try{photos[i]=ImageStore.load(context,slot);
                     if(needDepth[i])try{maps[i]=DepthMapManager.load(context,photos[i],keys[i]);imported[i]=DepthMapManager.manual(context,keys[i]);}catch(Exception|OutOfMemoryError e){Log.w("SoloDepth","Preparation failed",e);failure="depth";}
@@ -175,16 +175,17 @@ final class RenderLoop {
     boolean updatePlayback(){
         boolean any=false;
         for(int i=0;i<2;i++){VideoPlayer p=players[i];if(p==null)continue;
-            boolean on=visible&&!failed&&surface!=null&&hasCurrent&&(current.layer==i||fading&&outgoing.layer==i);p.play(on);any|=on&&p.playing();}
+            boolean on=visible&&!failed&&surface!=null&&hasCurrent&&(current.layer==i||fading&&outgoing.layer==i);p.play(on);any|=on&&p.playing();
+            if(on&&p.scrub)p.scrubTo(x);} // Tilt Scrub: the smoothed tilt picks the frame; a still phone issues no seek
         return any;
     }
     /** Render thread, context current: copies newly decoded frames into their layers. */
     void latchVideo(){
         for(int i=0;i<2;i++){VideoPlayer p=players[i];if(p==null||!p.latch())continue;
-            int vw=p.width,vh=p.height;Bitmap poster=p.key.equals(loadedKeys[i])?bitmaps[i]:null;
+            int vw=p.width,vh=p.height;Bitmap poster=p.mediaKey().equals(loadedKeys[i])?bitmaps[i]:null;
             // Players report upright sizes on current platforms; the poster (always upright) catches one that does not.
             if(poster!=null&&vw!=vh&&poster.getWidth()!=poster.getHeight()&&(vw>vh)!=(poster.getWidth()>poster.getHeight())){int t=vw;vw=vh;vh=t;}
-            try{scene.blitVideo(i,p.matrix,vw,vh);}catch(Exception e){Log.w("SoloVideo","Video frame copy failed",e);videoFailed(p);}
+            try{scene.blitVideo(i,p.matrix,vw,vh,p.loopMix);if(p.firstFrame){scene.captureLoop(i);p.loopCaptured=true;}}catch(Exception e){Log.w("SoloVideo","Video frame copy failed",e);videoFailed(p);}
         }
     }
     void videoFailed(VideoPlayer p){

@@ -36,7 +36,9 @@ final class GlScene {
     final int[] vao=new int[1],vbo=new int[1],fbo=new int[3],scratch=new int[3],oes=new int[2];
     final Layer[] layers={new Layer(),new Layer()};
     final float[] projection=new float[15];
-    int blurSource,blurLevel,blurStep,renderWidth,renderHeight,neutralDepth,video,videoSource,videoTransform;
+    int blurSource,blurLevel,blurStep,renderWidth,renderHeight,neutralDepth,video,videoSource,videoTransform,videoLoop,videoMix;
+    /** Per layer: a copy of the clip's first frame for the seamless loop (created on first capture) and its size. */
+    final int[] loopFrames=new int[2],loopSizes=new int[4];
 
     GlScene(Context context)throws IOException{
         this.context=context;
@@ -114,8 +116,8 @@ final class GlScene {
      * Copies the latched video frame into the layer's image at a capped size, then box-filters the mips in one call:
      * the per-level Gaussian pyramid would take a frame per level, longer than a video frame lives.
      */
-    void blitVideo(int index,float[] transform,int videoWidth,int videoHeight)throws IOException{
-        if(video==0){video=program(vertex,asset(context,"video_blit.glsl"));videoSource=glGetUniformLocation(video,"u_video");videoTransform=glGetUniformLocation(video,"u_transform");}
+    void blitVideo(int index,float[] transform,int videoWidth,int videoHeight,float loopMix)throws IOException{
+        if(video==0){video=program(vertex,asset(context,"video_blit.glsl"));videoSource=glGetUniformLocation(video,"u_video");videoTransform=glGetUniformLocation(video,"u_transform");videoLoop=glGetUniformLocation(video,"u_loop");videoMix=glGetUniformLocation(video,"u_mix");}
         Layer l=layers[index];int w=VideoPlayer.capped(videoWidth,videoHeight),h=VideoPlayer.capped(videoHeight,videoWidth);
         glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,l.image);glBindFramebuffer(GL_FRAMEBUFFER,fbo[2]);
         boolean resized=l.width!=w||l.height!=h;
@@ -124,8 +126,22 @@ final class GlScene {
         if(resized&&glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)throw new IllegalStateException("Video framebuffer");
         glViewport(0,0,w,h);glBindVertexArray(vao[0]);glUseProgram(video);glDisable(GL_BLEND);
         glActiveTexture(GL_TEXTURE3);glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,oes[index]);glUniform1i(videoSource,3);glUniformMatrix4fv(videoTransform,1,false,transform,0);
+        // The loop copy always sits on its own unit, so the sampler never points at the image being written (a feedback loop).
+        boolean blend=loopMix>0&&loopFrames[index]!=0&&loopSizes[index*2]==w&&loopSizes[index*2+1]==h;
+        glActiveTexture(GL_TEXTURE4);glBindTexture(GL_TEXTURE_2D,blend?loopFrames[index]:neutralDepth);glUniform1i(videoLoop,4);glUniform1f(videoMix,blend?loopMix:0);
         glDrawArrays(GL_TRIANGLES,0,6);glBindFramebuffer(GL_FRAMEBUFFER,0);
         glActiveTexture(GL_TEXTURE0);glGenerateMipmap(GL_TEXTURE_2D);l.nextLevel=l.levels+1;check("video blit");
+    }
+    /** Keeps level 0 of the layer's image (just blitted: the clip's first frame) for the loop crossfade. Call right after blitVideo. */
+    void captureLoop(int index){
+        Layer l=layers[index];if(l.width==0)return;
+        if(loopFrames[index]==0){int[] t=new int[1];glGenTextures(1,t,0);loopFrames[index]=t[0];glBindTexture(GL_TEXTURE_2D,t[0]);
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);}
+        glBindFramebuffer(GL_READ_FRAMEBUFFER,fbo[2]);glFramebufferTexture2D(GL_READ_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,l.image,0);
+        glActiveTexture(GL_TEXTURE4);glBindTexture(GL_TEXTURE_2D,loopFrames[index]);
+        if(loopSizes[index*2]!=l.width||loopSizes[index*2+1]!=l.height){glCopyTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,0,0,l.width,l.height,0);loopSizes[index*2]=l.width;loopSizes[index*2+1]=l.height;}
+        else glCopyTexSubImage2D(GL_TEXTURE_2D,0,0,0,0,0,l.width,l.height);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER,0);glActiveTexture(GL_TEXTURE0);check("loop capture");
     }
 
     void begin(){glBindFramebuffer(GL_FRAMEBUFFER,fbo[1]);glViewport(0,0,renderWidth,renderHeight);glBindVertexArray(vao[0]);}
@@ -159,7 +175,7 @@ final class GlScene {
     void close(){
         for(int[] p:programs.values())glDeleteProgram(p[0]);programs.clear();glDeleteProgram(blur);
         glDeleteTextures(1,new int[]{field},0);glDeleteTextures(8,new int[]{layers[0].image,layers[1].image,layers[0].depth,layers[1].depth,scratch[0],scratch[1],neutralDepth,scratch[2]},0);
-        for(int t:oes)if(t!=0)glDeleteTextures(1,new int[]{t},0);if(video!=0)glDeleteProgram(video);
+        for(int t:oes)if(t!=0)glDeleteTextures(1,new int[]{t},0);for(int t:loopFrames)if(t!=0)glDeleteTextures(1,new int[]{t},0);if(video!=0)glDeleteProgram(video);
         glDeleteFramebuffers(3,fbo,0);glDeleteBuffers(1,vbo,0);glDeleteVertexArrays(1,vao,0);
     }
 }
