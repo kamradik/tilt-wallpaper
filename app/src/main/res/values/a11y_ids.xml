@@ -1,0 +1,9 @@
+<!-- Accessibility custom actions of Ios.Segmented: "select segment N". -->
+<resources>
+  <item type="id" name="a11y_segment_0"/>
+  <item type="id" name="a11y_segment_1"/>
+  <item type="id" name="a11y_segment_2"/>
+  <item type="id" name="a11y_segment_3"/>
+  <item type="id" name="a11y_segment_4"/>
+  <item type="id" name="a11y_segment_5"/>
+</resources>

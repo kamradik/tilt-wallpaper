@@ -9,6 +9,7 @@ import android.graphics.drawable.*;
 import android.os.*;
 import android.util.TypedValue;
 import android.view.*;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.AnimationUtils;
 import android.view.animation.DecelerateInterpolator;
@@ -299,13 +300,55 @@ final class Ios {
         TextView b=text(c,title,16,SEMIBOLD,prominent?0xff0b0b0d:LABEL);b.setGravity(Gravity.CENTER);b.setMaxLines(1);
         b.setAutoSizeTextTypeUniformWithConfiguration(12,16,1,TypedValue.COMPLEX_UNIT_SP);b.setPadding(dp(c,16),0,dp(c,16),0);
         b.setBackground(prominent?new Shape(0xfff5f5f7,-1):glass(c,-1));if(!prominent)legible(b);b.setClickable(true);b.setFocusable(true);
-        b.setOutlineProvider(ViewOutlineProvider.BACKGROUND);return pressable(b);
+        b.setOutlineProvider(ViewOutlineProvider.BACKGROUND);b.setAccessibilityDelegate(BUTTON);return reach(pressable(b));
     }
     /** Round glass button holding one glyph, like the toolbar buttons of iOS 26. */
     static ImageView circle(Context c,int glyph,String description){
         ImageView v=new ImageView(c);v.setImageDrawable(new Glyph(c,glyph,LABEL,20));v.setScaleType(ImageView.ScaleType.CENTER);
-        v.setBackground(glass(c,-1));v.setContentDescription(description);v.setClickable(true);v.setFocusable(true);return pressable(v);
+        v.setBackground(glass(c,-1));v.setContentDescription(description);v.setClickable(true);v.setFocusable(true);v.setAccessibilityDelegate(BUTTON);return reach(pressable(v));
     }
+    // ---------------------------------------------------------------- accessibility
+    /** Announces a custom-drawn clickable view as a button (TalkBack: "..., button"). */
+    static final View.AccessibilityDelegate BUTTON=new View.AccessibilityDelegate(){
+        @Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName(Button.class.getName());}
+    };
+    /** Minimum touch target (Material and WCAG 2.5.8 guidance): 48 dp. */
+    static final float MIN_TARGET=48;
+    /** Lets a control smaller than 48 dp be hit from a 48 dp area through its parent, without changing how it looks.
+     *  Several small controls may share one parent; a touch goes to the nearest one whose area holds it. */
+    static <T extends View> T reach(T v){v.addOnLayoutChangeListener(REACH);return v;}
+    static final View.OnLayoutChangeListener REACH=(v,l,t,r,b,ol,ot,or,ob)->{
+        if(!(v.getParent() instanceof ViewGroup))return;ViewGroup g=(ViewGroup)v.getParent();
+        int min=dp(v.getContext(),MIN_TARGET),dx=Math.max(0,(min-(r-l)+1)/2),dy=Math.max(0,(min-(b-t)+1)/2);
+        TouchDelegate existing=g.getTouchDelegate();Reach reach=existing instanceof Reach?(Reach)existing:null;
+        if(reach==null){if(existing!=null||dx==0&&dy==0)return;reach=new Reach(g);g.setTouchDelegate(reach);}
+        if(dx==0&&dy==0){reach.areas.remove(v);return;}
+        reach.areas.put(v,new Rect(l-dx,t-dy,r+dx,b+dy));
+    };
+    static final class Reach extends TouchDelegate {
+        final ViewGroup parent;final Map<View,Rect> areas=new WeakHashMap<>();View target;
+        Reach(ViewGroup parent){super(new Rect(),parent);this.parent=parent;}
+        @Override public boolean onTouchEvent(MotionEvent e){
+            int action=e.getActionMasked();float x=e.getX()+parent.getScrollX(),y=e.getY()+parent.getScrollY();
+            if(action==MotionEvent.ACTION_DOWN){
+                target=null;float best=Float.MAX_VALUE;
+                for(Map.Entry<View,Rect> a:areas.entrySet()){View v=a.getKey();
+                    if(v.getParent()!=parent||v.getVisibility()!=View.VISIBLE||!v.isEnabled()||!a.getValue().contains((int)x,(int)y))continue;
+                    float d=(float)Math.hypot(x-(v.getLeft()+v.getRight())/2f,y-(v.getTop()+v.getBottom())/2f);if(d<best){best=d;target=v;}
+                }
+            }
+            View v=target;if(v==null)return false;
+            if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)target=null;
+            // Clamped into the control, so it treats the touch as its own (pressed state, click on release).
+            MotionEvent copy=MotionEvent.obtain(e);copy.setLocation(clamp(x-v.getLeft(),0,Math.max(0,v.getWidth()-1)),clamp(y-v.getTop(),0,Math.max(0,v.getHeight()-1)));
+            try{return v.dispatchTouchEvent(copy);}finally{copy.recycle();}
+        }
+        @Override public AccessibilityNodeInfo.TouchDelegateInfo getTouchDelegateInfo(){
+            Map<Region,View> map=new android.util.ArrayMap<>();for(Map.Entry<View,Rect> a:areas.entrySet())map.put(new Region(a.getValue()),a.getKey());
+            return map.isEmpty()?super.getTouchDelegateInfo():new AccessibilityNodeInfo.TouchDelegateInfo(map);
+        }
+    }
+
     static View hairline(Context c){View v=new View(c);v.setBackgroundColor(SEPARATOR);return v;}
 
     /** A one-value spring animator on the given curve; under Reduce Motion it eases without overshoot. */
@@ -317,7 +360,7 @@ final class Ios {
     static final class Toggle extends View {
         interface Listener{void changed(boolean on);}
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);final RectF r=new RectF();boolean on;float progress,stretch;Listener listener;ValueAnimator move,hold;
-        Toggle(Context c){super(c);setClickable(true);setFocusable(true);}
+        Toggle(Context c){super(c);setClickable(true);setFocusable(true);reach(this);}
         @Override protected void onMeasure(int w,int h){setMeasuredDimension(dp(getContext(),51)+getPaddingLeft()+getPaddingRight(),dp(getContext(),31)+getPaddingTop()+getPaddingBottom());}
         void setOn(boolean value,boolean animate){
             on=value;if(move!=null)move.cancel();
@@ -336,20 +379,26 @@ final class Ios {
             paint.setShadowLayer(3*d,0,1.5f*d,0x45000000);paint.setColor(LABEL);r.set(x,top+2*d,x+width,top+2*d+knob);c.drawRoundRect(r,knob/2,knob/2,paint);
         }
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setClassName(Switch.class.getName());info.setCheckable(true);info.setChecked(on);}
+        // The click event TalkBack announces after a toggle carries the new state, as CompoundButton's does.
+        @Override public void onInitializeAccessibilityEvent(AccessibilityEvent event){super.onInitializeAccessibilityEvent(event);event.setClassName(Switch.class.getName());event.setChecked(on);}
     }
 
     /** UISlider with a bipolar fill from zero and haptic detents at 0 and the ends; the thumb swells into a lens while held. */
     static final class Slider extends View {
         interface Listener{void changed(int value);}
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);final RectF r=new RectF();final int min,max;int value;float held;Listener listener;ValueAnimator hold;
-        Slider(Context c,int min,int max){super(c);this.min=min;this.max=max;setFocusable(true);}
+        /** Spoken after the value ("%" for the unit sliders); the drawn readout is separate. */
+        String unit="";
+        Slider(Context c,int min,int max){super(c);this.min=min;this.max=max;setFocusable(true);reach(this);}
+        /** Accessibility step: a tenth of the range. */
+        int step(){return Math.max(1,(max-min)/10);}
         @Override protected void onMeasure(int w,int h){setMeasuredDimension(MeasureSpec.getSize(w),dp(getContext(),44));}
         float thumb(){return px(getContext(),14);}
         float xOf(int v){float t=thumb()*1.3f;return t+(getWidth()-2*t)*(v-min)/(float)(max-min);}
         void set(int next,boolean user){
             next=Math.max(min,Math.min(max,next));if(next==value)return;
             if(user&&(next==0||next==min||next==max||(value<0)!=(next<0)))performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
-            value=next;invalidate();if(listener!=null)listener.changed(value);
+            value=next;invalidate();setStateDescription(value+unit);if(listener!=null)listener.changed(value);
         }
         void grip(boolean on){hold=Ios.animate(hold,held,on?1:0,on?SNAPPY:BOUNCY,a->{held=(float)a.getAnimatedValue();invalidate();});}
         @Override public boolean onTouchEvent(MotionEvent e){
@@ -368,12 +417,15 @@ final class Ios {
         }
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){
             super.onInitializeAccessibilityNodeInfo(info);info.setClassName(SeekBar.class.getName());
-            info.setRangeInfo(AccessibilityNodeInfo.RangeInfo.obtain(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT,min,max,value));
+            info.setRangeInfo(AccessibilityNodeInfo.RangeInfo.obtain(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT,min,max,value));info.setStateDescription(value+unit);
             if(value<max)info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);if(value>min)info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+            if(isEnabled())info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS);
         }
         @Override public boolean performAccessibilityAction(int action,Bundle args){
-            if(action==AccessibilityNodeInfo.ACTION_SCROLL_FORWARD){set(value+10,false);return true;}
-            if(action==AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD){set(value-10,false);return true;}
+            if(action==AccessibilityNodeInfo.ACTION_SCROLL_FORWARD||action==android.R.id.accessibilityActionScrollRight){set(value+step(),false);return true;}
+            if(action==AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD||action==android.R.id.accessibilityActionScrollLeft){set(value-step(),false);return true;}
+            if(action==android.R.id.accessibilityActionSetProgress&&args!=null&&args.containsKey(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE)){
+                set(Math.round(args.getFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE)),false);return true;}
             return super.performAccessibilityAction(action,args);
         }
     }
@@ -388,7 +440,7 @@ final class Ios {
         TextView body=text(a,message,13,REGULAR,0xd9ffffff);body.setGravity(Gravity.CENTER);body.setLineSpacing(px(a,2),1);body.setPadding(dp(a,18),dp(a,2),dp(a,18),dp(a,18));
         ScrollView scroll=new ScrollView(a);scroll.addView(body);card.addView(scroll,new LinearLayout.LayoutParams(-1,-2,1));
         card.addView(hairline(a),new LinearLayout.LayoutParams(-1,Math.max(1,dp(a,.5f))));
-        TextView button=text(a,action,17,SEMIBOLD,BLUE);button.setGravity(Gravity.CENTER);button.setClickable(true);button.setFocusable(true);button.setOnClickListener(v->dialog.dismiss());
+        TextView button=text(a,action,17,SEMIBOLD,BLUE);button.setGravity(Gravity.CENTER);button.setClickable(true);button.setFocusable(true);button.setAccessibilityDelegate(BUTTON);button.setOnClickListener(v->dialog.dismiss());
         card.addView(pressable(button),new LinearLayout.LayoutParams(-1,dp(a,48)));
         dialog.setContentView(frame);
         Window w=dialog.getWindow();w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));w.setLayout(-1,-2);w.setDimAmount(.45f);w.setWindowAnimations(android.R.style.Animation_Toast);
@@ -405,12 +457,14 @@ final class Ios {
         String[] items;int selected,hovered;float position,velocity,target,held,downX,lastX;long frame,lastTime;boolean settling,onThumb,dragging;Listener listener;ValueAnimator hold;
         Segmented(Context c,String... items){
             super(c);this.items=items;setBackground(glass(c,-1));setClickable(true);setFocusable(true);slop=ViewConfiguration.get(c).getScaledTouchSlop();
-            text.setTypeface(font(SEMIBOLD));text.setTextSize(px(c,13));text.setTextAlign(Paint.Align.CENTER);
+            // 13 sp: follows the system font size, capped at 1.3x so the labels stay inside the capsule.
+            text.setTypeface(font(SEMIBOLD));text.setTextSize(px(c,13)*Math.max(1,Math.min(1.3f,c.getResources().getConfiguration().fontScale)));text.setTextAlign(Paint.Align.CENTER);
+            setStateDescription(items.length>0?items[0]:null);reach(this);
         }
-        @Override protected void onMeasure(int w,int h){setMeasuredDimension(MeasureSpec.getSize(w),dp(getContext(),36));}
+        @Override protected void onMeasure(int w,int h){Paint.FontMetrics m=text.getFontMetrics();setMeasuredDimension(MeasureSpec.getSize(w),Math.max(dp(getContext(),36),Math.round(m.descent-m.ascent+px(getContext(),16))));}
         float segment(){return getWidth()/(float)Math.max(1,items.length);}
         void select(int index,boolean animate){
-            if(index<0||index>=items.length)return;selected=hovered=index;target=index;
+            if(index<0||index>=items.length)return;selected=hovered=index;target=index;setStateDescription(items[index]);
             if(!animate||still()){position=index;velocity=0;settling=false;invalidate();return;}
             settle();
         }
@@ -425,7 +479,7 @@ final class Ios {
         void grip(boolean on){hold=Ios.animate(hold,held,on?1:0,on?SNAPPY:BOUNCY,a->{held=(float)a.getAnimatedValue();invalidate();});}
         void commit(int i){
             i=Math.max(0,Math.min(items.length-1,i));target=i;
-            if(i!=selected){selected=hovered=i;performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);if(listener!=null)listener.selected(i);}
+            if(i!=selected){selected=hovered=i;performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);setStateDescription(items[i]);if(listener!=null)listener.selected(i);}
             if(still()){position=i;velocity=0;invalidate();}else settle();
         }
         @Override public boolean onTouchEvent(MotionEvent e){
@@ -460,22 +514,35 @@ final class Ios {
                 c.drawText(items[i],seg*i+seg/2,cy-(text.descent()+text.ascent())/2,text);}
             if(settling||dragging&&Math.abs(velocity)>.01f)postInvalidateOnAnimation();
         }
-        @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setText(items[selected]);}
+        /** TalkBack reads the choices and the selected one; double tap moves to the next, the actions menu or a scroll gesture picks one. */
+        @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){
+            super.onInitializeAccessibilityNodeInfo(info);info.setText(String.join(" / ",items));info.setStateDescription(items[selected]);
+            if(selected<items.length-1)info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);if(selected>0)info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+            for(int i=0;i<items.length&&i<SEGMENT_ACTIONS.length;i++)if(i!=selected)info.addAction(new AccessibilityNodeInfo.AccessibilityAction(SEGMENT_ACTIONS[i],items[i]));
+        }
+        @Override public boolean performAccessibilityAction(int action,Bundle args){
+            if(action==AccessibilityNodeInfo.ACTION_CLICK){commit((selected+1)%items.length);return true;}
+            if(action==AccessibilityNodeInfo.ACTION_SCROLL_FORWARD&&selected<items.length-1){commit(selected+1);return true;}
+            if(action==AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD&&selected>0){commit(selected-1);return true;}
+            for(int i=0;i<items.length&&i<SEGMENT_ACTIONS.length;i++)if(action==SEGMENT_ACTIONS[i]){commit(i);return true;}
+            return super.performAccessibilityAction(action,args);
+        }
     }
+    static final int[] SEGMENT_ACTIONS={R.id.a11y_segment_0,R.id.a11y_segment_1,R.id.a11y_segment_2,R.id.a11y_segment_3,R.id.a11y_segment_4,R.id.a11y_segment_5};
     /** UISearchBar: capsule fill, magnifier, clear button. Fills the given container and returns its field. */
     static EditText searchField(Context c,String hint,LinearLayout container){
         container.setGravity(Gravity.CENTER_VERTICAL);container.setBackground(new Shape(0x3d767680,-1));container.setPadding(dp(c,12),0,dp(c,6),0);
         ImageView icon=new ImageView(c);icon.setImageDrawable(new Glyph(c,Glyph.SEARCH,SECONDARY,18));container.addView(icon);
         EditText field=new EditText(c);field.setHint(hint);field.setHintTextColor(SECONDARY);field.setTextColor(LABEL);field.setTextSize(TypedValue.COMPLEX_UNIT_SP,17);field.setTypeface(font(REGULAR));
         field.setSingleLine(true);field.setBackground(null);field.setPadding(dp(c,8),0,dp(c,8),0);field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);container.addView(field,new LinearLayout.LayoutParams(0,-1,1));
-        ImageView clear=new ImageView(c);clear.setImageDrawable(new Glyph(c,Glyph.CLOSE,SECONDARY,16));clear.setContentDescription("Очистить");clear.setVisibility(View.GONE);clear.setPadding(dp(c,6),0,dp(c,6),0);container.addView(clear,new LinearLayout.LayoutParams(-2,-1));
+        ImageView clear=new ImageView(c);clear.setImageDrawable(new Glyph(c,Glyph.CLOSE,SECONDARY,16));clear.setContentDescription("Очистить");clear.setAccessibilityDelegate(BUTTON);clear.setFocusable(true);clear.setVisibility(View.GONE);clear.setPadding(dp(c,6),0,dp(c,6),0);container.addView(clear,new LinearLayout.LayoutParams(-2,-1));
         clear.setOnClickListener(v->field.setText(""));
         field.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int n){}public void onTextChanged(CharSequence s,int a,int b,int n){clear.setVisibility(s.length()>0?View.VISIBLE:View.GONE);}public void afterTextChanged(android.text.Editable s){}});
         return field;
     }
     /** Filter chip; a selected chip is filled white like the iOS 26 capsules. */
     static TextView chip(Context c,String title){
-        TextView t=text(c,title,15,MEDIUM,LABEL);t.setGravity(Gravity.CENTER);t.setPadding(dp(c,14),0,dp(c,14),0);t.setBackground(glass(c,-1));legible(t);t.setClickable(true);t.setFocusable(true);return pressable(t);
+        TextView t=text(c,title,15,MEDIUM,LABEL);t.setGravity(Gravity.CENTER);t.setPadding(dp(c,14),0,dp(c,14),0);t.setBackground(glass(c,-1));legible(t);t.setClickable(true);t.setFocusable(true);t.setAccessibilityDelegate(BUTTON);return reach(pressable(t));
     }
     static void chipSelected(TextView chip,boolean on){
         if(on==chip.isSelected()&&chip.getBackground()!=null)return;
@@ -505,7 +572,7 @@ final class Ios {
         LinearLayout box=new LinearLayout(c);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(c,16),dp(c,10),dp(c,14),dp(c,2));card.addView(box);
         LinearLayout head=new LinearLayout(c);box.addView(head);head.addView(text(c,title,15,REGULAR,LABEL),new LinearLayout.LayoutParams(0,-2,1));
         TextView number=text(c,Math.round(value*100)+"%",15,REGULAR,SECONDARY);number.setFontFeatureSettings("tnum");head.addView(number);
-        Slider s=new Slider(c,0,100);s.value=Math.round(value*100);s.setContentDescription(title);box.addView(s);
+        Slider s=new Slider(c,0,100);s.value=Math.round(value*100);s.unit="%";s.setStateDescription(s.value+"%");s.setContentDescription(title);box.addView(s);
         s.listener=v->{number.setText(v+"%");listener.changed(v);};return s;
     }
 
