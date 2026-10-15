@@ -14,6 +14,9 @@ final class Effects {
             this.id=id;this.category=category;this.flags=flags;this.ru=ru;this.en=en;this.aboutRu=aboutRu;this.aboutEn=aboutEn;
             this.aRu=aRu;this.aEn=aEn;this.a=a;this.bRu=bRu;this.bEn=bEn;this.b=b;this.switchRu=switchRu;this.switchEn=switchEn;
         }
+        /** CPU physics for this effect, created fresh each time it becomes the current effect; null for pure shaders. */
+        java.util.function.Supplier<Simulation> simulation;
+        Effect sim(java.util.function.Supplier<Simulation> factory){simulation=factory;return this;}
         boolean has(int flag){return (flags&flag)!=0;}
         boolean hasSwitch(){return switchRu!=null;}
         /** Needs a frame every vsync rather than only while tilting; ANIMATED_SWITCH animates only with its switch on. */

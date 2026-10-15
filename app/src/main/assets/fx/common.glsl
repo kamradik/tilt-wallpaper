@@ -24,7 +24,11 @@ uniform float u_toggle;   // the effect's switch, 0 or 1
 uniform float u_motion;   // 1, or 0.15 with Reduce Motion
 uniform float u_time;     // seconds since the renderer started
 uniform vec2 u_wake;      // seconds since the wallpaper became visible, active
-uniform float u_alpha;    // crossfade weight while switching effects
+uniform float u_alpha;
+uniform sampler2D u_field;  // Simulation field: 72x160 RGBA, screen space (row 0 at the bottom); see Simulation.java
+uniform vec3 u_gravity;     // screen-space gravity: xy (x right, y up, length 0 flat .. 1 upright), z shake 0..1
+uniform vec2 u_charge;      // x 1 while charging, y battery level 0..1
+uniform float u_day;        // local time of day 0..1 (0 midnight, .5 noon)    // crossfade weight while switching effects
 in vec2 v_uv;
 out vec4 outColor;
 

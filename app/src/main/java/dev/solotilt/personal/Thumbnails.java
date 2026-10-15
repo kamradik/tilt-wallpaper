@@ -14,6 +14,8 @@ import java.util.function.BiConsumer;
  */
 final class Thumbnails {
     static final int WIDTH=210,HEIGHT=330;
+    /** Previews: on battery, mid-afternoon, phone held upright, so gravity-driven effects show their resting state. */
+    static final float[] PREVIEW_ENV={0,.8f,.6f,0,-1,0};
     final Context context;final HandlerThread thread=new HandlerThread("SoloThumbnails");final Handler handler,main=new Handler(Looper.getMainLooper());
     EGLDisplay display=EGL14.EGL_NO_DISPLAY;EGLContext glContext=EGL14.EGL_NO_CONTEXT;EGLSurface surface=EGL14.EGL_NO_SURFACE;GlScene scene;
     volatile int generation;boolean broken;
@@ -36,7 +38,7 @@ final class Thumbnails {
                 for(Effects.Effect e:Effects.ALL){
                     if(request!=generation)return;
                     p.effect=e.id;pass.set(0,p);
-                    scene.begin();scene.draw(pass,WIDTH,HEIGHT,28,-14,1,touch,2.4f,9);scene.end(WIDTH,HEIGHT);
+                    scene.begin();scene.draw(pass,WIDTH,HEIGHT,28,-14,1,touch,2.4f,9,PREVIEW_ENV);scene.end(WIDTH,HEIGHT);
                     pixels.position(0);GLES30.glReadPixels(0,0,WIDTH,HEIGHT,GLES30.GL_RGBA,GLES30.GL_UNSIGNED_BYTE,pixels);
                     Bitmap raw=Bitmap.createBitmap(WIDTH,HEIGHT,Bitmap.Config.ARGB_8888);pixels.position(0);raw.copyPixelsFromBuffer(pixels);
                     Bitmap shot=Bitmap.createBitmap(raw,0,0,WIDTH,HEIGHT,flip,false);raw.recycle();

@@ -1,6 +1,6 @@
 package dev.solotilt.personal;
 
-import android.content.Context;
+import android.content.*;
 import android.graphics.*;
 import android.opengl.*;
 import android.os.*;
@@ -45,10 +45,21 @@ final class RenderLoop {
     final Runnable quality=()->{if(!closed&&scene!=null)try{configureQuality();schedule();}catch(Exception e){fail(e);}};
     final Runnable recover=()->{if(closed)return;try{releaseGl();initialize();uploadAll();syncVideo();schedule();}catch(Exception e){fail(e);}};
 
+    // Inputs for event and physics effects (GlScene.ENV_*), updated on the render thread except battery.
+    final float[] env=new float[GlScene.ENV_SIZE];final ByteBuffer fieldBuffer=ByteBuffer.allocateDirect(Simulation.W*Simulation.H*4);
+    Simulation simulation;String simulationFor;float lastRawX,lastRawY,shake;long dayStamp;boolean simulationLive;
+    final BroadcastReceiver battery=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
+        int status=i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS,-1),level=i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1),scale=i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100);
+        env[GlScene.ENV_CHARGING]=status==android.os.BatteryManager.BATTERY_STATUS_CHARGING||status==android.os.BatteryManager.BATTERY_STATUS_FULL?1:0;
+        env[GlScene.ENV_LEVEL]=level<0?1:level/(float)Math.max(1,scale);if(handler!=null)handler.post(RenderLoop.this::schedule);
+    }};
     RenderLoop(Context c,java.util.function.Consumer<String> e){
         context=c.getApplicationContext();error=e;config=WallpaperConfig.load(context);if(!android.animation.ValueAnimator.areAnimatorsEnabled())config.reduceMotion=true;performance=new PerformanceController(context);
         displays=c.getSystemService(DisplayManager.class);Display d=displays.getDisplay(0);if(d!=null)refresh=Math.max(30,d.getRefreshRate());
         thread.start();handler=new Handler(thread.getLooper());handler.post(()->choreographer=Choreographer.getInstance());displays.registerDisplayListener(displayListener,handler);
+        // Sticky broadcast: the first call returns the current state, later ones keep env up to date.
+        Intent now=Build.VERSION.SDK_INT>=33?context.registerReceiver(battery,new IntentFilter(Intent.ACTION_BATTERY_CHANGED),Context.RECEIVER_NOT_EXPORTED):context.registerReceiver(battery,new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if(now!=null)battery.onReceive(context,now);
     }
 
     // ---- inputs ----
@@ -240,10 +251,11 @@ final class RenderLoop {
             fading=transition<1;boolean video=updatePlayback();latchVideo();if(scene==null)return; // a failed poster restore released GL
             touch[2]=touchTime==0?99:(start-touchTime)*1e-9f;touch[3]=config.touch&&!config.reduceMotion?1:0;
             if(current.effect.has(Effects.WIPE)){if(wipeActive)decayWipe(dt*1e-3f);if(wipeDirty){wipeBuffer.position(0);wipeBuffer.put(wipeGrid);scene.updateWipe(wipeBuffer);wipeDirty=false;}}
+            updateEnvironment(start,dt);
             float motion=config.reduceMotion?.15f:1,time=((start-startTime)*1e-9f)%3600f,wakeAge=(start-wakeTime)*1e-9f;
             scene.begin();
-            if(transition<1){scene.draw(outgoing,w,h,x,y,motion,touch,time,wakeAge);current.alpha=transition*transition*(3-2*transition);}else current.alpha=1;
-            scene.draw(current,w,h,x,y,motion,touch,time,wakeAge);
+            if(transition<1){scene.draw(outgoing,w,h,x,y,motion,touch,time,wakeAge,env);current.alpha=transition*transition*(3-2*transition);}else current.alpha=1;
+            scene.draw(current,w,h,x,y,motion,touch,time,wakeAge,env);
             scene.end(w,h);
             long submitted=SystemClock.elapsedRealtimeNanos();
             if(!EGL14.eglSwapBuffers(display,eglSurface)){
@@ -253,7 +265,7 @@ final class RenderLoop {
             performance.sensorAgeMs=latest.timestamp==0?0:Math.max(0,(start-latest.timestamp)*1e-6f);
             float desired=performance.desiredScale(config.quality,w,h);
             if(performance.sample(performance.frameMs)||Math.abs(desired-qualityScale)>.01)handler.post(quality);
-            boolean live=!config.reduceMotion&&(current.effect.animated(current.toggle>.5f)
+            boolean live=!config.reduceMotion&&(simulationLive||current.effect.animated(current.toggle>.5f)
                 ||current.effect.has(Effects.TOUCH)&&touch[3]>0&&touch[2]<1.6f||current.effect.has(Effects.WIPE)&&wipeActive||wakeAge<1.2f);
             // A playing clip schedules its own frames as they decode (so at most its rate, paced like tilt by interval);
             // ambient animation rides on those frames instead of adding a clock of its own.
@@ -281,7 +293,22 @@ final class RenderLoop {
         display=EGL14.EGL_NO_DISPLAY;glContext=EGL14.EGL_NO_CONTEXT;eglSurface=EGL14.EGL_NO_SURFACE;
     }
     void detach(){CountDownLatch latch=new CountDownLatch(1);handler.post(()->{try{cancelFrame();releaseGl();surface=null;}finally{latch.countDown();}});try{latch.await(250,TimeUnit.MILLISECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}}
-    void close(){closed=true;generation++;displays.unregisterDisplayListener(displayListener);performance.close();handler.post(()->{visible=false;cancelFrame();releaseGl();surface=null;recycle(bitmaps);thread.quitSafely();});}
+    /** Time of day (once a second), screen-space gravity and shake from the raw sensor tilt, and the current effect's physics. */
+    void updateEnvironment(long now,float dtMs){
+        if(now-dayStamp>1_000_000_000L){dayStamp=now;env[GlScene.ENV_DAY]=java.time.LocalTime.now().toSecondOfDay()/86400f;}
+        // Tilt is the gravity direction scaled to its angle from face-up; gravity itself points the other way on screen.
+        float ax=latest.x,ay=latest.y,a=(float)Math.hypot(ax,ay),s=(float)Math.sin(Math.toRadians(Math.min(90,a))),sec=Math.max(.001f,dtMs*1e-3f);
+        env[GlScene.ENV_GX]=a<1e-3f?0:-ax/a*s;env[GlScene.ENV_GY]=a<1e-3f?0:-ay/a*s;
+        float rate=(float)Math.hypot(ax-lastRawX,ay-lastRawY)/sec;lastRawX=ax;lastRawY=ay;
+        shake=Math.max(shake*(float)Math.exp(-sec*4),Math.max(0,Math.min(1,(rate-60)/400)));env[GlScene.ENV_SHAKE]=shake;
+        Effects.Effect e=current.effect;simulationLive=false;
+        if(e.simulation==null){simulation=null;simulationFor=null;return;}
+        if(!e.id.equals(simulationFor)){simulation=e.simulation.get();simulationFor=e.id;}
+        boolean touching=touch[3]>0&&touch[2]<.12f;
+        simulationLive=simulation.step(Math.min(.1f,sec),env[GlScene.ENV_GX],env[GlScene.ENV_GY],shake,touching?touch[0]:Float.NaN,touching?touch[1]:Float.NaN);
+        fieldBuffer.position(0);simulation.fill(fieldBuffer);scene.updateField(fieldBuffer);
+    }
+    void close(){closed=true;generation++;try{context.unregisterReceiver(battery);}catch(IllegalArgumentException ignored){}displays.unregisterDisplayListener(displayListener);performance.close();handler.post(()->{visible=false;cancelFrame();releaseGl();surface=null;recycle(bitmaps);thread.quitSafely();});}
     /** Depth state of what is on screen, for the preview's status line. */
     boolean showingDepth(){return hasCurrent&&depthReady[current.layer];}
     boolean showingManualDepth(){return hasCurrent&&manualDepth[current.layer];}
