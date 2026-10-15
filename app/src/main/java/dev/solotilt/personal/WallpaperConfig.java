@@ -9,7 +9,9 @@ import org.json.*;
  * Global motion/performance settings plus one Profile per screen; the lock profile is used only with separateLock.
  */
 final class WallpaperConfig {
-    static final String KEY="config_v2";static final int VERSION=3;
+    static final String KEY="config_v2";static final int VERSION=4;
+    /** Saved presets are capped so their media copies cannot fill the device. */
+    static final int MAX_PRESETS=30;
     static final String HOME="home",LOCK="lock";
     /** Frame-rate cap: follow the display, or a fixed 30/60. */
     static final int FPS_AUTO=0,FPS_30=1,FPS_60=2;
@@ -18,6 +20,61 @@ final class WallpaperConfig {
     boolean reduceMotion,touch=true,haptics=true,separateLock;String language="ru";
     final Set<String> favorites=new LinkedHashSet<>();final LinkedList<String> recents=new LinkedList<>();
     final Profile home=new Profile(),lock=new Profile();
+    /** v4: saved looks (newest first) and one time-of-day / photo-of-the-day plan per screen. */
+    final List<Preset> presets=new ArrayList<>();final Schedule.Plan homePlan=new Schedule.Plan(),lockPlan=new Schedule.Plan();
+
+    /** A saved look: a profile snapshot plus a reference to the preset's own media copy (see Presets). */
+    static final class Preset {
+        static final String PHOTO="photo",VIDEO="video",BUILTIN="builtin";
+        String id,name,media=BUILTIN;int builtin;long created;final Profile profile=new Profile();
+        Preset copy(){Preset p=new Preset();p.id=id;p.name=name;p.media=media;p.builtin=builtin;p.created=created;p.profile.copyFrom(profile);return p;}
+        JSONObject json()throws JSONException{return new JSONObject().put("id",id).put("name",name).put("created",created).put("media",media).put("builtin",builtin).put("profile",writeProfile(profile));}
+        /** Clamped like the rest of the config; null when the entry is unusable. An invalid id is replaced, so it can never reach a file path. */
+        static Preset parse(JSONObject o){
+            if(o==null)return null;Preset p=new Preset();
+            String id=o.optString("id","");p.id=validId(id)?id:newId();
+            p.name=cleanName(o.optString("name",""));p.created=Math.max(0,o.optLong("created",0));
+            String media=o.optString("media",BUILTIN);p.media=PHOTO.equals(media)||VIDEO.equals(media)?media:BUILTIN;
+            p.builtin=Math.floorMod(o.optInt("builtin",0),3);
+            readProfile(o.optJSONObject("profile"),p.profile);return p;
+        }
+    }
+    static boolean validId(String id){return id!=null&&id.matches("[a-z0-9]{4,24}");}
+    static final Random IDS=new Random();
+    static String newId(){return Long.toString(System.currentTimeMillis(),36)+Integer.toString(1296+IDS.nextInt(45360),36);}
+    /** Trimmed, control characters removed, at most 40 characters; empty becomes "Пресет". */
+    static String cleanName(String raw){
+        String s=raw==null?"":raw.replaceAll("\\p{Cntrl}"," ").trim().replaceAll("\\s+"," ");
+        if(s.length()>40)s=s.substring(0,40).trim();return s.isEmpty()?"Пресет":s;
+    }
+    Preset preset(String id){if(id!=null)for(Preset p:presets)if(p.id.equals(id))return p;return null;}
+    Schedule.Plan plan(String slot){return LOCK.equals(slot)?lockPlan:homePlan;}
+    /** Drops schedule windows whose preset is gone. */
+    void prunePlans(){for(Schedule.Plan plan:new Schedule.Plan[]{homePlan,lockPlan})plan.windows.removeIf(w->preset(w.preset)==null);}
+
+    // ---------------------------------------------------------------- curated collections and "surprise me"
+    static final String[] COLLECTION_RU={"Спокойные","Яркие","Экономные","Объёмные"},COLLECTION_EN={"Calm","Vivid","Battery-friendly","3D"};
+    static final Set<String> CALM=Set.of("classic","focus","glass","fluted","ice","depth","shadow","window","golden","bokeh","pond");
+    static final Set<String> VIVID=Set.of("holo","prism","oil","mercury","caustic","aurora","nebula","lenticular","film","light");
+    /** Calm and Vivid are curated lists; Battery-friendly never redraws by itself (no ANIMATED or ANIMATED_SWITCH) and needs no depth; 3D uses depth. */
+    static boolean inCollection(int collection,Effects.Effect e){
+        switch(collection){
+            case 0:return CALM.contains(e.id);
+            case 1:return VIVID.contains(e.id);
+            case 2:return !e.has(Effects.ANIMATED)&&!e.has(Effects.ANIMATED_SWITCH)&&!e.has(Effects.DEPTH);
+            case 3:return e.has(Effects.DEPTH);
+            default:return false;
+        }
+    }
+    /** "Surprise me": an effect other than current, its parameters jittered around the defaults and kept within 0.3..0.8. */
+    static String surprise(Random r,String current,float[] params){
+        String now=Effects.get(current).id;Effects.Effect pick;
+        do pick=Effects.ALL[r.nextInt(Effects.ALL.length)];while(pick.id.equals(now));
+        float[] d=pick.defaults();
+        for(int i=0;i<2;i++)params[i]=Math.max(.3f,Math.min(.8f,d[i]+(r.nextFloat()-.5f)*.4f));
+        params[2]=pick.hasSwitch()&&r.nextFloat()<.25f?0:1;
+        return pick.id;
+    }
 
     /** What one screen shows: an effect, its per-effect parameters, and how the photo is framed. */
     static final class Profile {
@@ -57,6 +114,14 @@ final class WallpaperConfig {
                 readFlat(o,"",c.home);
                 if(o.has("lockEffectId"))readFlat(o,"lock",c.lock);else c.lock.copyFrom(c.home);
             }
+            // v3 had no presets or schedule: they start empty, so a v3 config migrates by being read as is.
+            if(version>=4){
+                JSONArray list=o.optJSONArray("presets");Set<String> ids=new HashSet<>();
+                if(list!=null)for(int i=0;i<list.length()&&c.presets.size()<MAX_PRESETS;i++){Preset p=Preset.parse(list.optJSONObject(i));if(p!=null&&ids.add(p.id))c.presets.add(p);}
+                JSONObject schedule=o.optJSONObject("schedule");
+                if(schedule!=null){Schedule.Plan.read(schedule.optJSONObject(HOME),c.homePlan);Schedule.Plan.read(schedule.optJSONObject(LOCK),c.lockPlan);}
+                c.prunePlans();
+            }
         }catch(JSONException ignored){}
         return c;
     }
@@ -93,8 +158,10 @@ final class WallpaperConfig {
         JSONArray favs=new JSONArray();for(String f:favorites)favs.put(f);JSONArray recent=new JSONArray();for(String r:recents)recent.put(r);
         return new JSONObject().put("version",VERSION).put("qualityMode",quality).put("fps",fps).put("sensorSensitivity",sensitivity).put("motionSmoothing",smoothing)
             .put("neutralX",neutralX).put("neutralY",neutralY).put("reduceMotion",reduceMotion).put("touch",touch).put("haptics",haptics).put("language",language)
-            .put("separateLock",separateLock).put("favorites",favs).put("recents",recent).put(HOME,writeProfile(home)).put(LOCK,writeProfile(lock)).toString();
+            .put("separateLock",separateLock).put("favorites",favs).put("recents",recent).put(HOME,writeProfile(home)).put(LOCK,writeProfile(lock))
+            .put("presets",presetsJson()).put("schedule",new JSONObject().put(HOME,homePlan.json()).put(LOCK,lockPlan.json())).toString();
     }catch(JSONException e){throw new IllegalStateException(e);}}
+    JSONArray presetsJson()throws JSONException{JSONArray a=new JSONArray();for(Preset p:presets)a.put(p.json());return a;}
     void save(Context c){ImageStore.prefs(c).edit().putString(KEY,json()).apply();}
     WallpaperConfig copy(){return parse(json());}
 }

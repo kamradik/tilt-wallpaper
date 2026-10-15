@@ -18,7 +18,7 @@ public final class TiltWallpaper extends WallpaperService {
         // Unlock without a broadcast (face unlock straight to home) is caught by a light poll that runs only while locked and visible.
         final Runnable poll=new Runnable(){public void run(){checkLock();if(visible&&locked)main.postDelayed(this,250);}};
         final BroadcastReceiver screen=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
-            if(Intent.ACTION_USER_PRESENT.equals(i.getAction()))setLocked(false);
+            if(Intent.ACTION_USER_PRESENT.equals(i.getAction())){setLocked(false);if(!isPreview())Schedule.poke(TiltWallpaper.this,true);}
             else if(Intent.ACTION_SCREEN_OFF.equals(i.getAction()))main.postDelayed(TiltEngine.this::checkLock,400);
             else checkLock();
         }};
@@ -49,7 +49,9 @@ public final class TiltWallpaper extends WallpaperService {
             main.removeCallbacks(poll);if(visible&&value)main.postDelayed(poll,250);
         }
         void update(){renderer.visible(visible&&ready);if(visible&&ready)motion.start();else motion.stop();}
-        public void onVisibilityChanged(boolean v){visible=v;if(v)checkLock();else main.removeCallbacks(poll);update();}
+        /** Becoming visible also pokes the schedule: it checks off the main thread and, if a new window or day began,
+         *  writes config/media, which the listeners below turn into a reload. No service or alarm is involved. */
+        public void onVisibilityChanged(boolean v){visible=v;if(v){checkLock();if(!isPreview())Schedule.poke(TiltWallpaper.this,false);}else main.removeCallbacks(poll);update();}
         @Override public Bundle onCommand(String action,int x,int y,int z,Bundle extras,boolean resultExpected){
             // Hidden platform commands: sent as the unlock animation starts (before ACTION_USER_PRESENT) and on wake; switching here lets the crossfade ride the animation.
             if("android.wallpaper.keyguardgoingaway".equals(action))setLocked(false);

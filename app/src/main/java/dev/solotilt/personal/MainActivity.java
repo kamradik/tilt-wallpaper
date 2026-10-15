@@ -15,7 +15,9 @@ import static dev.solotilt.personal.Ios.*;
 
 /** The hub: live preview of the selected screen, the effect sheet, and the searchable catalog. */
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
-    static final int PICK_PHOTO=10,PICK_DEPTH=11;
+    static final int PICK_PHOTO=10,PICK_DEPTH=11,ONBOARD=12;
+    /** Catalog filters below -2 are the curated collections: -10 is collection 0, -11 collection 1, ... */
+    static final int COLLECTION_FILTER=-10;
     static final String[] PRESETS_RU={"Розовые ленты","Синие ленты","Янтарные ленты"},PRESETS_EN={"Rose ribbons","Blue ribbons","Amber ribbons"};
     RenderLoop renderer;Motion motion;WallpaperConfig config;Thumbnails thumbnails;
     String slot=WallpaperConfig.HOME,previewKey;boolean resumed,ready,importing,hidden,dragging;float downX,downY,dragTiltX,dragTiltY;long labelTime;
@@ -24,7 +26,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     FrameLayout root,stage,catalog;Curtain curtain;String ringShown;boolean entering;float catalogY,catalogLastY,catalogSpeed;long catalogTime;
     LinearLayout header,sheetBody,strip,params,editing,lockCard,frame,catalogGrid;ScrollView sheet;Segmented screens;
     TextView angle,effectTitle,effectAbout,status,choose,install;ImageView heart;View dot;EditText search;
-    final Tile[] tiles=new Tile[4];final List<TextView> chips=new ArrayList<>();int filter=-1; // -1 all, -2 favorites, else a category
+    final Tile[] tiles=new Tile[4];final List<TextView> chips=new ArrayList<>();int filter=-1; // -1 all, -2 favorites, <=-10 a collection, else a category
+    HorizontalScrollView stripScroll;final List<String> stripOrder=new ArrayList<>();ImageView dice;android.animation.ValueAnimator stripMove;final Random random=new Random();long seenHome,seenLock;
     String tr(String ru,String en){return config.en()?en:ru;}
     int dp(float n){return Ios.dp(this,n);}
     WallpaperConfig.Profile profile(){return config.profile(slot);}
@@ -39,8 +42,14 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         // Sensor thread: Ios.light coalesces to ~30 Hz and posts the glass redraw to the UI thread itself.
         motion=new Motion(this,getDisplay(),(x,y,t)->{if(dragging)return;renderer.tilt(x,y,t);Ios.light(x-config.neutralX,y-config.neutralY);if(SystemClock.uptimeMillis()-labelTime>150){labelTime=SystemClock.uptimeMillis();runOnUiThread(()->angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f°","Tilt %.0f°"),Math.hypot(x,y))));}});
         renderer.sensorInfo(motion.description());thumbnails=new Thumbnails(this);
-        build(state==null);
+        build(state==null);rememberMedia();
+        if(state==null&&!OnboardingActivity.seen(this))main.postDelayed(this::openOnboarding,350);
     }
+    void openOnboarding(){if(isFinishing()||isDestroyed())return;startActivityForResult(new Intent(this,OnboardingActivity.class),ONBOARD);overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);}
+    void push(Class<?> activity){saveNow();startActivity(new Intent(this,activity).putExtra(PresetsActivity.EXTRA_SLOT,slot));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);}
+    /** Presets and the schedule change media from other screens; onResume reloads when a slot's revision moved. */
+    void rememberMedia(){seenHome=ImageStore.revision(this,WallpaperConfig.HOME);seenLock=ImageStore.revision(this,WallpaperConfig.LOCK);}
+    boolean mediaMoved(){return seenHome!=ImageStore.revision(this,WallpaperConfig.HOME)||seenLock!=ImageStore.revision(this,WallpaperConfig.LOCK);}
 
     // ---------------------------------------------------------------- layout
     void build(boolean animate){
@@ -54,8 +63,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setClipChildren(false);stage.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
         LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setClipChildren(false);header.addView(bar);
-        bar.addView(legible(text(this,"Tilt",34,BOLD,LABEL)),new LinearLayout.LayoutParams(0,-2,1));
-        ImageView settings=circle(this,Glyph.GEAR,tr("Настройки","Settings"));bar.addView(settings,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        TextView appTitle=legible(text(this,"Tilt",34,BOLD,LABEL));bar.addView(appTitle,new LinearLayout.LayoutParams(0,-2,1));
+        appTitle.setOnLongClickListener(v->{tick(v);openOnboarding();return true;});
+        ImageView presets=circle(this,Glyph.PLUS,tr("Пресеты","Presets"));presets.setImageDrawable(new StackIcon());bar.addView(presets,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        presets.setOnClickListener(v->push(PresetsActivity.class));
+        ImageView settings=circle(this,Glyph.GEAR,tr("Настройки","Settings"));LinearLayout.LayoutParams gearParams=new LinearLayout.LayoutParams(dp(40),dp(40));gearParams.leftMargin=dp(10);bar.addView(settings,gearParams);
         settings.setOnClickListener(v->{startActivity(new Intent(this,SettingsActivity.class));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);});
         ImageView author=new ImageView(this);author.setImageResource(R.drawable.author_avatar);author.setScaleType(ImageView.ScaleType.CENTER_CROP);author.setForeground(new Shape(0,-1).stroke(px(this,1.5f),0x66ffffff));
         author.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View v,Outline o){o.setOval(0,0,v.getWidth(),v.getHeight());}});author.setClipToOutline(true);author.setContentDescription(tr("Об авторе","About the author"));author.setClickable(true);
@@ -80,10 +92,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);titleRow.setClipChildren(false);sheetBody.addView(titleRow);
         effectTitle=text(this,"",22,BOLD,LABEL);titleRow.addView(effectTitle,new LinearLayout.LayoutParams(0,-2,1));
         heart=circle(this,Glyph.HEART,tr("В избранное","Add to favorites"));titleRow.addView(heart,new LinearLayout.LayoutParams(dp(38),dp(38)));heart.setOnClickListener(v->toggleFavorite(profile().effect,v));
+        dice=circle(this,Glyph.PLUS,tr("Случайный эффект","Surprise me"));dice.setImageDrawable(new Dice());LinearLayout.LayoutParams dp2=new LinearLayout.LayoutParams(dp(38),dp(38));dp2.leftMargin=dp(8);titleRow.addView(dice,dp2);dice.setOnClickListener(this::surprise);
         TextView all=capsule(this,tr("Все эффекты","All effects"),false);LinearLayout.LayoutParams allp=new LinearLayout.LayoutParams(-2,dp(38));allp.leftMargin=dp(8);titleRow.addView(all,allp);all.setOnClickListener(v->openCatalog());
         effectAbout=text(this,"",15,REGULAR,SECONDARY);effectAbout.setPadding(0,dp(4),0,dp(10));sheetBody.addView(effectAbout);
 
-        HorizontalScrollView stripScroll=new HorizontalScrollView(this);stripScroll.setHorizontalScrollBarEnabled(false);stripScroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
+        stripScroll=new HorizontalScrollView(this);stripScroll.setHorizontalScrollBarEnabled(false);stripScroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
         strip=new LinearLayout(this);stripScroll.addView(strip);sheetBody.addView(stripScroll,new LinearLayout.LayoutParams(-1,dp(116)));
 
         // Lock tab without its own wallpaper: one switch, the editing controls hidden.
@@ -104,6 +117,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout actions=new LinearLayout(this);actions.setClipChildren(false);LinearLayout.LayoutParams acp=new LinearLayout.LayoutParams(-1,dp(52));acp.topMargin=dp(8);sheetBody.addView(actions,acp);
         choose=capsule(this,tr("Фото или видео","Photo or video"),false);actions.addView(choose,new LinearLayout.LayoutParams(0,-1,1));choose.setOnClickListener(v->{if(editable())pick(PICK_PHOTO);});
         install=capsule(this,tr("Установить","Set wallpaper"),true);LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(0,-1,1);ip.leftMargin=dp(10);actions.addView(install,ip);install.setOnClickListener(v->{tick(v);install();});
+        // Presets and the schedule sit below the main actions: one grouped card, like a settings list.
+        LinearLayout more=group(this,sheetBody,null);((LinearLayout.LayoutParams)more.getLayoutParams()).topMargin=dp(16);
+        navRow(more,tr("Пресеты","Presets"),()->push(PresetsActivity.class));
+        navRow(more,tr("Расписание","Schedule"),()->push(ScheduleActivity.class));
 
         root.setOnApplyWindowInsetsListener((v,insets)->{
             Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
@@ -128,7 +145,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         if(effectTitle.getText().length()==0){effectTitle.setText(e.name(en));effectAbout.setText(e.about(en));}else{swap(effectTitle,e.name(en));swap(effectAbout,e.about(en));}
         Ios.backdropFrame(p.scale,p.cropX,p.cropY);
         boolean fav=config.isFavorite(e.id);heart.setImageDrawable(new Glyph(this,fav?Glyph.HEART_FILL:Glyph.HEART,fav?0xffff375f:LABEL,19));heart.setContentDescription(fav?tr("Убрать из избранного","Remove from favorites"):tr("В избранное","Add to favorites"));
-        heart.setVisibility(edit?View.VISIBLE:View.GONE);
+        heart.setVisibility(edit?View.VISIBLE:View.GONE);dice.setVisibility(edit?View.VISIBLE:View.GONE);
         buildStrip();
         params.removeAllViews();
         if(edit){
@@ -160,6 +177,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     /** Favorites first, then recents, then the rest of the catalog. */
     void buildStrip(){
         strip.removeAllViews();LinkedHashSet<String> order=new LinkedHashSet<>(config.favorites);order.addAll(config.recents);for(Effects.Effect e:Effects.ALL)order.add(e.id);
+        stripOrder.clear();stripOrder.addAll(order);
         for(String id:order){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(72),-1);lp.rightMargin=dp(8);strip.addView(card(Effects.get(id),dp(72),false),lp);}
         ringShown=editable()?profile().effect:null;
     }
@@ -244,9 +262,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int n){}public void onTextChanged(CharSequence s,int a,int b,int n){fillCatalog();}public void afterTextChanged(android.text.Editable s){}});
         HorizontalScrollView chipScroll=new HorizontalScrollView(this);chipScroll.setHorizontalScrollBarEnabled(false);chipScroll.setClipToPadding(false);chipScroll.setPadding(dp(16),0,dp(16),0);
         chipScroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);LinearLayout chipRow=new LinearLayout(this);chipRow.setClipChildren(false);chipScroll.addView(chipRow);LinearLayout.LayoutParams crp=new LinearLayout.LayoutParams(-1,dp(36));crp.topMargin=dp(12);column.addView(chipScroll,crp);
-        String[] cats=config.en()?Effects.CATEGORY_EN:Effects.CATEGORY_RU;chips.clear();
-        for(int i=-2;i<cats.length;i++){
-            final int f=i==-2?-1:i==-1?-2:i;String label=f==-1?tr("Все","All"):f==-2?tr("Избранное","Favorites"):cats[f];
+        String[] cats=config.en()?Effects.CATEGORY_EN:Effects.CATEGORY_RU,collections=config.en()?WallpaperConfig.COLLECTION_EN:WallpaperConfig.COLLECTION_RU;chips.clear();
+        // All, Favorites, the curated collections, then the categories.
+        List<Integer> order=new ArrayList<>(List.of(-1,-2));for(int i=0;i<collections.length;i++)order.add(COLLECTION_FILTER-i);for(int i=0;i<cats.length;i++)order.add(i);
+        for(int f:order){
+            String label=f==-1?tr("Все","All"):f==-2?tr("Избранное","Favorites"):f<=COLLECTION_FILTER?collections[COLLECTION_FILTER-f]:cats[f];
             TextView c=chip(this,label);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-1);lp.rightMargin=dp(8);chipRow.addView(c,lp);chips.add(c);c.setTag(f);
             c.setOnClickListener(v->{tick(v);filter=f;fillCatalog();});
         }
@@ -256,7 +276,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     void fillCatalog(){
         for(TextView c:chips)chipSelected(c,(int)c.getTag()==filter);
         List<Effects.Effect> found=new ArrayList<>();
-        for(Effects.Effect e:Effects.search(search==null?"":search.getText().toString()))if(filter==-1||filter==-2&&config.isFavorite(e.id)||filter==e.category)found.add(e);
+        for(Effects.Effect e:Effects.search(search==null?"":search.getText().toString()))if(filter==-1||filter==-2&&config.isFavorite(e.id)||filter<=COLLECTION_FILTER&&WallpaperConfig.inCollection(COLLECTION_FILTER-filter,e)||filter==e.category)found.add(e);
         catalogGrid.removeAllViews();int width=(root.getWidth()-dp(16)*2-dp(12))/2;
         if(found.isEmpty()){TextView empty=text(this,filter==-2?tr("Пока пусто. Нажми ♥ у эффекта, чтобы добавить его сюда.","Nothing yet. Tap ♥ on an effect to add it here."):tr("Ничего не найдено","No effects found"),17,REGULAR,SECONDARY);empty.setGravity(Gravity.CENTER);empty.setPadding(dp(20),dp(60),dp(20),0);catalogGrid.addView(empty);return;}
         LinearLayout line=null;
@@ -282,6 +302,22 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         config.toggleFavorite(id);tick(v);persist();refresh();boolean fav=config.isFavorite(id);
         if(!still()){v.setScaleX(.62f);v.setScaleY(.62f);v.setRotation(fav?-14:0);}
         spring(v,POP).scaleX(1).scaleY(1).rotation(0).translationX(0).translationY(0).alpha(1);
+    }
+    /** "Surprise me": a different effect with tasteful random parameters; the dice tumbles and the strip glides to the card. */
+    void surprise(View v){
+        if(!editable())return;tick(v);float[] values=new float[3];String id=WallpaperConfig.surprise(random,profile().effect,values);
+        profile().params.put(id,values);selectEffect(id);
+        if(!still()){v.setRotation(-200);v.setScaleX(.7f);v.setScaleY(.7f);}spring(v,POP).rotation(0).scaleX(1).scaleY(1).translationX(0).translationY(0).alpha(1);
+        stripScroll.post(()->{
+            int index=stripOrder.indexOf(id);if(index<0)return;int step=dp(72)+dp(8);
+            int max=Math.max(0,strip.getWidth()-stripScroll.getWidth()),to=Math.max(0,Math.min(max,index*step-(stripScroll.getWidth()-dp(72))/2));
+            stripMove=Ios.animate(stripMove,stripScroll.getScrollX(),to,SMOOTH,a->stripScroll.scrollTo(Math.round((float)a.getAnimatedValue()),0));
+        });
+    }
+    /** A row with a title and a chevron that pushes another screen. */
+    void navRow(LinearLayout card,String title,Runnable open){
+        ImageView chevron=new ImageView(this);chevron.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));
+        LinearLayout r=row(this,card,title,chevron);r.setClickable(true);r.setFocusable(true);r.setOnClickListener(x->{tick(x);open.run();});pressable(r);
     }
     void setSeparateLock(boolean on){
         config.separateLock=on;
@@ -362,11 +398,15 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         // Settings may have changed in SettingsActivity.
         WallpaperConfig latest=WallpaperConfig.load(this);Ios.reduceMotion(latest.reduceMotion);
         if(!latest.json().equals(config.json())){boolean language=!latest.language.equals(config.language);config=latest;renderer.settings(config);if(language){recreate();return;}refresh();rebuildFraming();applyHaptics(root);}
+        // A preset applied (or a scheduled photo) elsewhere replaced a slot's media.
+        if(mediaMoved()){rememberMedia();renderer.reload();previewKey=null;refresh();}
         loadTileThumbnail();update();
     }
-    @Override protected void onPause(){saveNow();resumed=false;update();super.onPause();}
+    @Override protected void onPause(){saveNow();rememberMedia();resumed=false;update();super.onPause();}
     @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);io.shutdown();motion.close();renderer.close();thumbnails.close();for(Bitmap b:previews.values())b.recycle();super.onDestroy();}
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if((request!=PICK_PHOTO&&request!=PICK_DEPTH)||result!=RESULT_OK||data==null||data.getData()==null)return;
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
+        if(request==ONBOARD){if(result==RESULT_OK)main.postDelayed(this::install,300);return;}
+        if((request!=PICK_PHOTO&&request!=PICK_DEPTH)||result!=RESULT_OK||data==null||data.getData()==null)return;
         importing=true;choose.setEnabled(false);install.setEnabled(false);swap(status,tr("Подготовка изображения…","Preparing image…"));Uri uri=data.getData();Context app=getApplicationContext();String m=mediaSlot();
         io.execute(()->{boolean ok=true;try{if(request==PICK_PHOTO){String type=app.getContentResolver().getType(uri);if(type!=null&&type.startsWith("video/"))ImageStore.importVideo(app,uri,m);else ImageStore.importImage(app,uri,m);DepthMapManager.prune(app);}else DepthMapManager.importDepth(app,uri,m);}catch(Exception|OutOfMemoryError e){ok=false;}
             final boolean success=ok;runOnUiThread(()->{if(isDestroyed())return;importing=false;choose.setEnabled(editable());install.setEnabled(true);
@@ -419,6 +459,33 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             card.set(w/2-w*s/2,h/2-h*s/2,w/2+w*s/2,h/2+h*s/2);
             path.reset();path.setFillType(Path.FillType.EVEN_ODD);path.addRect(0,0,w,h,Path.Direction.CW);path.addRoundRect(card,r,r,Path.Direction.CW);
             paint.setColor(Color.BLACK);c.drawPath(path,paint);paint.setColor(Color.argb(Math.round(110*progress),0,0,0));c.drawRoundRect(card,r,r,paint);
+        }
+    }
+
+    /** Line icons the kit has no glyph for, drawn on the same unit grid and stroke weight as Ios.Glyph. */
+    abstract class LineIcon extends Drawable {
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);final int size=dp(20);
+        LineIcon(){paint.setColor(LABEL);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(.085f);paint.setStrokeJoin(Paint.Join.ROUND);paint.setStrokeCap(Paint.Cap.ROUND);setBounds(0,0,size,size);}
+        abstract void unit(Canvas c);
+        @Override public void draw(Canvas c){Rect b=getBounds();float s=Math.min(b.width(),b.height());c.save();c.translate(b.exactCenterX()-s/2,b.exactCenterY()-s/2);c.scale(s,s);unit(c);c.restore();}
+        @Override public int getIntrinsicWidth(){return size;}
+        @Override public int getIntrinsicHeight(){return size;}
+        @Override public void setAlpha(int a){paint.setAlpha(a);invalidateSelf();}
+        @Override public void setColorFilter(ColorFilter f){paint.setColorFilter(f);invalidateSelf();}
+        @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+    }
+    /** die.face.5: rounded square with five pips. */
+    final class Dice extends LineIcon {
+        @Override void unit(Canvas c){
+            paint.setStyle(Paint.Style.STROKE);c.drawRoundRect(.16f,.16f,.84f,.84f,.17f,.17f,paint);paint.setStyle(Paint.Style.FILL);
+            float[][] pips={{.34f,.34f},{.66f,.34f},{.5f,.5f},{.34f,.66f},{.66f,.66f}};for(float[] p:pips)c.drawCircle(p[0],p[1],.06f,paint);
+        }
+    }
+    /** square.stack: a card with two cards peeking behind it, for presets. */
+    final class StackIcon extends LineIcon {
+        @Override void unit(Canvas c){
+            paint.setStyle(Paint.Style.STROKE);c.drawRoundRect(.18f,.36f,.82f,.86f,.1f,.1f,paint);
+            c.drawLine(.26f,.25f,.74f,.25f,paint);c.drawLine(.34f,.14f,.66f,.14f,paint);
         }
     }
 
