@@ -1,6 +1,7 @@
 // Compiles every effect in app/src/main/assets/fx exactly as GlScene assembles it (common + effect + main)
 // and renders each once in WebGL2 at a tilt, failing on compile/link errors or an empty frame.
 // Usage: PLAYWRIGHT_MODULE=<path to playwright> node tests/fx-check.cjs [chrome.exe]
+// Off Windows (CI) it uses Playwright's bundled Chromium unless CHROME_PATH or the argument names a browser.
 const fs=require('fs');
 const path=require('path');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
@@ -9,7 +10,7 @@ const quad=fs.readFileSync(path.join(__dirname,'..','app/src/main/assets/quad.gl
 const common=fs.readFileSync(path.join(dir,'common.glsl'),'utf8'),main=fs.readFileSync(path.join(dir,'main.glsl'),'utf8');
 const effects=fs.readdirSync(dir).filter(f=>f.endsWith('.glsl')&&f!=='common.glsl'&&f!=='main.glsl').map(f=>[f.replace('.glsl',''),common+'\n'+fs.readFileSync(path.join(dir,f),'utf8')+'\n'+main]);
 (async()=>{
-  const browser=await chromium.launch({executablePath:process.argv[2]||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--enable-unsafe-swiftshader']});
+  const browser=await chromium.launch({executablePath:process.argv[2]||process.env.CHROME_PATH||(process.platform==='win32'?'C:/Program Files/Google/Chrome/Application/chrome.exe':undefined),headless:true,args:['--enable-unsafe-swiftshader']});
   try{
     const page=await browser.newPage();
     const results=await page.evaluate(({quad,effects})=>{

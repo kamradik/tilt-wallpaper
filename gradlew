@@ -204,7 +204,7 @@ fi
 # Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 # Tilt: Java's AF_UNIX selector pipe cannot bind under a Cyrillic or 8.3-short temp path. JAVA_TOOL_OPTIONS reaches
 # the daemon and test workers at JVM start, which org.gradle.jvmargs -D properties do not.
-export JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=C:\\Users\\Public ${JAVA_TOOL_OPTIONS:-}"
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) export JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=C:\\Users\\Public ${JAVA_TOOL_OPTIONS:-}" ;; esac   # Windows only; Linux CI needs nothing
 DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
 
 # Collect all arguments for the java command:
