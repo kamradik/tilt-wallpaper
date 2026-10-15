@@ -15,7 +15,7 @@ import static dev.solotilt.personal.Ios.*;
 
 /** The hub: live preview of the selected screen, the effect sheet, and the searchable catalog. */
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
-    static final int PICK_PHOTO=10,PICK_DEPTH=11,ONBOARD=12;
+    static final int PICK_PHOTO=10,PICK_DEPTH=11,ONBOARD=12,TRIM=13;
     /** Catalog filters below -2 are the curated collections: -10 is collection 0, -11 collection 1, ... */
     static final int COLLECTION_FILTER=-10;
     static final String[] PRESETS_RU={"Розовые ленты","Синие ленты","Янтарные ленты"},PRESETS_EN={"Rose ribbons","Blue ribbons","Amber ribbons"};
@@ -43,6 +43,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         motion=new Motion(this,getDisplay(),(x,y,t)->{if(dragging)return;renderer.tilt(x,y,t);Ios.light(x-config.neutralX,y-config.neutralY);if(SystemClock.uptimeMillis()-labelTime>150){labelTime=SystemClock.uptimeMillis();runOnUiThread(()->angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f°","Tilt %.0f°"),Math.hypot(x,y))));}});
         renderer.sensorInfo(motion.description());thumbnails=new Thumbnails(this);
         build(state==null);rememberMedia();
+        // App shortcut "Choose photo" (ShortcutActivity) opens the picker straight away.
+        if(state==null&&"pick".equals(getIntent().getStringExtra("action")))main.postDelayed(()->pick(PICK_PHOTO),400);
         if(state==null&&!OnboardingActivity.seen(this))main.postDelayed(this::openOnboarding,350);
     }
     void openOnboarding(){if(isFinishing()||isDestroyed())return;startActivityForResult(new Intent(this,OnboardingActivity.class),ONBOARD);overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);}
@@ -153,6 +155,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             unitSlider(this,card,en?e.aEn:e.aRu,v[0],x->{profile().current()[0]=x/100f;persist();});
             unitSlider(this,card,en?e.bEn:e.bRu,v[1],x->{profile().current()[1]=x/100f;persist();});
             if(e.hasSwitch()){Toggle t=new Toggle(this);t.setOn(v[2]>.5f,false);t.setContentDescription(en?e.switchEn:e.switchRu);t.listener=on->{profile().current()[2]=on?1:0;persist();};row(this,card,en?e.switchEn:e.switchRu,t);}
+            if(ImageStore.isVideo(this,mediaSlot())){Toggle scrub=new Toggle(this);scrub.setOn(ImageStore.isScrub(this,mediaSlot()),false);scrub.setContentDescription(tr("Перемотка наклоном","Tilt scrub"));
+                scrub.listener=on->{ImageStore.setScrub(this,mediaSlot(),on);renderer.reload();swap(status,on?tr("Наклоняй телефон, чтобы листать видео","Tilt to scrub through the video"):"");};row(this,card,tr("Перемотка наклоном","Tilt scrub"),scrub);}
             if(e.has(Effects.DEPTH)){TextView importDepth=text(this,tr("Импорт карты","Import map"),17,REGULAR,BLUE);importDepth.setClickable(true);importDepth.setOnClickListener(x->pick(PICK_DEPTH));row(this,card,tr("Глубина","Depth"),pressable(importDepth));}
             TextView reset=text(this,tr("Сбросить эффект","Reset effect"),17,REGULAR,0xffff453a);reset.setClickable(true);reset.setOnClickListener(x->{profile().reset(e.id);persist();refresh();});row(this,card,null,pressable(reset));
             if(e.has(Effects.DEPTH))footer(this,params,tr("Глубина считается автоматически и приблизительно. Своя карта точнее: белое — ближе, чёрное — дальше.","Depth is estimated automatically. Your own map is more accurate: white is near, black is far."));
@@ -406,6 +410,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);io.shutdown();motion.close();renderer.close();thumbnails.close();for(Bitmap b:previews.values())b.recycle();super.onDestroy();}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(request==ONBOARD){if(result==RESULT_OK)main.postDelayed(this::install,300);return;}
+        // The trim screen imports the clip itself; refresh either way, since a back press during saving still finishes the import.
+        if(request==TRIM){renderer.reload();mediaChanged(result==RESULT_OK?tr("Видео готово. Выбери эффект.","Video ready. Pick an effect."):"");return;}
+        // Videos go through the trim screen (cut, audio removed) before they become the wallpaper.
+        if(request==PICK_PHOTO&&result==RESULT_OK&&data!=null&&data.getData()!=null){String type=getContentResolver().getType(data.getData());
+            if(type!=null&&type.startsWith("video/")){startActivityForResult(VideoTrimActivity.intent(this,data.getData(),mediaSlot()),TRIM);return;}}
         if((request!=PICK_PHOTO&&request!=PICK_DEPTH)||result!=RESULT_OK||data==null||data.getData()==null)return;
         importing=true;choose.setEnabled(false);install.setEnabled(false);swap(status,tr("Подготовка изображения…","Preparing image…"));Uri uri=data.getData();Context app=getApplicationContext();String m=mediaSlot();
         io.execute(()->{boolean ok=true;try{if(request==PICK_PHOTO){String type=app.getContentResolver().getType(uri);if(type!=null&&type.startsWith("video/"))ImageStore.importVideo(app,uri,m);else ImageStore.importImage(app,uri,m);DepthMapManager.prune(app);}else DepthMapManager.importDepth(app,uri,m);}catch(Exception|OutOfMemoryError e){ok=false;}
