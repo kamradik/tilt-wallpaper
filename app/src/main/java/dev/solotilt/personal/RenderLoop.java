@@ -175,7 +175,8 @@ final class RenderLoop {
     boolean updatePlayback(){
         boolean any=false;
         for(int i=0;i<2;i++){VideoPlayer p=players[i];if(p==null)continue;
-            boolean on=visible&&!failed&&surface!=null&&hasCurrent&&(current.layer==i||fading&&outgoing.layer==i);p.play(on);any|=on&&p.playing();
+            // A paused wallpaper (QS tile, low battery) also stops decoding, not just drawing.
+            boolean on=visible&&!failed&&surface!=null&&hasCurrent&&!(error==null&&performance.shouldPause())&&(current.layer==i||fading&&outgoing.layer==i);p.play(on);any|=on&&p.playing();
             if(on&&p.scrub)p.scrubTo(x);} // Tilt Scrub: the smoothed tilt picks the frame; a still phone issues no seek
         return any;
     }
@@ -234,7 +235,7 @@ final class RenderLoop {
         framePending=false;if(closed||!visible||surface==null||!surface.isValid())return;
         if(failed){still();return;}if(scene==null||!hasCurrent)return;
         // Diagnostics/pause hook (logic in PerformanceController): publish the effect id; the wallpaper (no error callback) paused by the QS tile or low battery keeps its last frame and schedules nothing until woken.
-        PerformanceController.effect=current.effect.id;if(performance.hold(error==null,surface,w,h,config,bitmaps[current.layer],handler,wake)){previousVsync=0;return;}
+        PerformanceController.effect=current.effect.id;if(performance.hold(error==null,surface,w,h,config,bitmaps[current.layer],handler,wake)){previousVsync=0;updatePlayback();return;}
         // Ambient animation alone (no tilt in flight) runs at 30 fps under Auto; tilting gets the full rate.
         long pace=ambientOnly&&config.fps==WallpaperConfig.FPS_AUTO?Math.max(interval,33_333_333L):interval;
         if(lastDraw!=0&&vsync-lastDraw<pace-2000000){schedule();return;}
