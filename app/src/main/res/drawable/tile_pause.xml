@@ -1,0 +1,4 @@
+<!-- Quick Settings tile: white glyph (the system tints it); a tilted card with a pause bar. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+  <path android:fillColor="#FFFFFF" android:pathData="M7,3h10a2,2 0,0 1,2 2v14a2,2 0,0 1,-2 2h-10a2,2 0,0 1,-2 -2v-14a2,2 0,0 1,2 -2zM9.5,8v8h1.8v-8zM12.7,8v8h1.8v-8z" android:fillType="evenOdd"/>
+</vector>

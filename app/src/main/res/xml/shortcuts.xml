@@ -1,0 +1,19 @@
+<!-- Static app shortcuts (long-press the launcher icon). Shortcut intents start as this app, so targets need not be exported. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+  <shortcut android:shortcutId="random" android:enabled="true" android:icon="@drawable/shortcut_random"
+      android:shortcutShortLabel="@string/shortcut_random" android:shortcutLongLabel="@string/shortcut_random_long" android:shortcutDisabledMessage="@string/shortcut_disabled">
+    <intent android:action="android.intent.action.VIEW" android:targetPackage="dev.solotilt.personal" android:targetClass="dev.solotilt.personal.ShortcutActivity"/>
+  </shortcut>
+  <shortcut android:shortcutId="pick" android:enabled="true" android:icon="@drawable/shortcut_photo"
+      android:shortcutShortLabel="@string/shortcut_photo" android:shortcutLongLabel="@string/shortcut_photo_long" android:shortcutDisabledMessage="@string/shortcut_disabled">
+    <intent android:action="android.intent.action.VIEW" android:targetPackage="dev.solotilt.personal" android:targetClass="dev.solotilt.personal.MainActivity">
+      <extra android:name="action" android:value="pick"/>
+    </intent>
+  </shortcut>
+  <shortcut android:shortcutId="settings" android:enabled="true" android:icon="@drawable/shortcut_settings"
+      android:shortcutShortLabel="@string/shortcut_settings" android:shortcutDisabledMessage="@string/shortcut_disabled">
+    <!-- The hub first, so Back from Settings lands in the app. -->
+    <intent android:action="android.intent.action.MAIN" android:targetPackage="dev.solotilt.personal" android:targetClass="dev.solotilt.personal.MainActivity"/>
+    <intent android:action="android.intent.action.VIEW" android:targetPackage="dev.solotilt.personal" android:targetClass="dev.solotilt.personal.SettingsActivity"/>
+  </shortcut>
+</shortcuts>

@@ -36,10 +36,10 @@ public final class SettingsActivity extends Activity {
         LinearLayout motionCard=group(this,list,tr("Движение","Motion"));
         unitSlider(this,motionCard,tr("Чувствительность","Sensitivity"),(config.sensitivity-.1f)/1.9f,v->{config.sensitivity=.1f+v/100f*1.9f;save();});
         unitSlider(this,motionCard,tr("Плавность","Smoothing"),config.smoothing,v->{config.smoothing=v/100f;save();});
-        TextView neutral=text(this,tr("Задать","Set"),17,REGULAR,BLUE);neutral.setClickable(true);
+        TextView neutral=text(this,tr("Задать","Set"),17,REGULAR,BLUE);neutral.setClickable(true);neutral.setAccessibilityDelegate(BUTTON);
         neutral.setOnClickListener(v->{config.neutralX=rawX;config.neutralY=rawY;save();v.performHapticFeedback(HapticFeedbackConstants.CONFIRM);Toast.makeText(this,tr("Это положение теперь нейтральное","This position is now neutral"),Toast.LENGTH_SHORT).show();});
         row(this,motionCard,tr("Нейтраль — как сейчас","Neutral — current pose"),pressable(neutral));
-        TextView resetNeutral=text(this,tr("Сбросить","Reset"),17,REGULAR,BLUE);resetNeutral.setClickable(true);resetNeutral.setOnClickListener(v->{config.neutralX=config.neutralY=0;save();});
+        TextView resetNeutral=text(this,tr("Сбросить","Reset"),17,REGULAR,BLUE);resetNeutral.setClickable(true);resetNeutral.setAccessibilityDelegate(BUTTON);resetNeutral.setOnClickListener(v->{config.neutralX=config.neutralY=0;save();});
         row(this,motionCard,tr("Нейтраль — экраном вверх","Neutral — face up"),pressable(resetNeutral));
         toggle(motionCard,tr("Меньше движения","Reduce Motion"),config.reduceMotion,on->{config.reduceMotion=on;Ios.reduceMotion(on);});
         footer(this,list,tr("«Нейтраль» — положение телефона, при котором картинка ровная. Удобно, если держишь телефон под углом.","Neutral is the pose where the picture sits flat — handy if you usually hold the phone at an angle."));
@@ -55,7 +55,10 @@ public final class SettingsActivity extends Activity {
         row(this,perf,null,fps);
         Segmented quality=new Segmented(this,tr("Авто","Auto"),tr("Эконом","Battery"),tr("Баланс","Balanced"),tr("Макс","High"));quality.select(config.quality,false);quality.listener=i->{config.quality=i;save();};
         row(this,perf,null,quality);
-        footer(this,list,tr("Частота кадров: «Авто» — до 60 кадров в секунду, при экономии энергии 30. Экран: "+hz+" Гц. Качество задаёт разрешение рендера; при нагреве оно снижается само. Без движения обои не перерисовываются.","Frame rate: Auto is up to 60 fps, 30 in battery saver. Display: "+hz+" Hz. Quality sets the render resolution and drops by itself when the phone heats up. A still wallpaper does not redraw."));
+        android.content.SharedPreferences prefs=ImageStore.prefs(this);
+        Toggle low=new Toggle(this);low.setOn(prefs.getBoolean(PerformanceController.KEY_LOW_BATTERY,true),false);low.setContentDescription(tr("Пауза при низком заряде","Pause on low battery"));low.setHapticFeedbackEnabled(config.haptics);
+        low.listener=on->prefs.edit().putBoolean(PerformanceController.KEY_LOW_BATTERY,on).apply();row(this,perf,tr("Пауза при низком заряде","Pause on low battery"),low);
+        footer(this,list,tr("Частота кадров: «Авто» — до 60 кадров в секунду, при экономии энергии 30. Экран: "+hz+" Гц. Качество задаёт разрешение рендера; при нагреве оно снижается само. Без движения обои не перерисовываются. При заряде "+PerformanceController.LOW_BATTERY+"% и меньше без зарядки обои замирают.","Frame rate: Auto is up to 60 fps, 30 in battery saver. Display: "+hz+" Hz. Quality sets the render resolution and drops by itself when the phone heats up. A still wallpaper does not redraw. At "+PerformanceController.LOW_BATTERY+"% or less, unplugged, the wallpaper holds still."));
 
         LinearLayout language=group(this,list,tr("Язык","Language"));
         Segmented lang=new Segmented(this,"Русский","English");lang.select(config.en()?1:0,false);
@@ -63,12 +66,18 @@ public final class SettingsActivity extends Activity {
 
         LinearLayout about=group(this,list,tr("О приложении","About"));
         String version="";try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){}
-        row(this,about,tr("Версия","Version"),text(this,version,17,REGULAR,SECONDARY));
-        LinearLayout author=row(this,about,tr("Автор — Kamradik","Author — Kamradik"),chevron());author.setClickable(true);
+        LinearLayout versionRow=row(this,about,tr("Версия","Version"),text(this,version,17,REGULAR,SECONDARY));
+        versionRow.setOnLongClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);openDiagnostics();return true;});  // hidden shortcut, as in many iOS apps
+        LinearLayout author=row(this,about,tr("Автор — Kamradik","Author — Kamradik"),chevron());author.setClickable(true);author.setFocusable(true);
         author.setOnClickListener(v->{startActivity(new Intent(this,AuthorActivity.class));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);});
         footer(this,list,tr("Независимая реализация по анализу Solo Tilt. Оптическая модель основана на DuoLikeAnimation, © 2026 Elijah Semyonov, MIT. Работает без интернета.","An independent implementation based on an analysis of Solo Tilt. The optical model is based on DuoLikeAnimation, © 2026 Elijah Semyonov, MIT. Works offline."));
+
+        LinearLayout developer=group(this,list,tr("Для разработчика","Developer"));
+        LinearLayout diagnostics=row(this,developer,tr("Диагностика","Diagnostics"),chevron());diagnostics.setClickable(true);diagnostics.setFocusable(true);diagnostics.setOnClickListener(v->openDiagnostics());
+        footer(this,list,tr("Кадры, датчик, нагрев, расход батареи по эффектам и журнал сбоев.","Frames, sensor, heat, battery use by effect and the crash log."));
         list.setHapticFeedbackEnabled(config.haptics);
     }
+    void openDiagnostics(){startActivity(new Intent(this,DebugActivity.class));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);}
     interface Change{void set(boolean on);}
     void toggle(LinearLayout card,String title,boolean value,Change change){Toggle t=new Toggle(this);t.setOn(value,false);t.setContentDescription(title);t.setHapticFeedbackEnabled(config.haptics);t.listener=on->{change.set(on);save();};row(this,card,title,t);}
     ImageView chevron(){ImageView v=new ImageView(this);v.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));return v;}

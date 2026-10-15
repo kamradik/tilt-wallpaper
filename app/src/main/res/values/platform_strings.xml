@@ -1,0 +1,10 @@
+<!-- Labels the system shows outside the app (launcher shortcuts, Quick Settings); they follow the phone's language. -->
+<resources>
+  <string name="shortcut_random">Случайный эффект</string>
+  <string name="shortcut_random_long">Случайный эффект на главный экран</string>
+  <string name="shortcut_photo">Выбрать фото</string>
+  <string name="shortcut_photo_long">Выбрать фото или видео</string>
+  <string name="shortcut_settings">Настройки</string>
+  <string name="shortcut_disabled">Недоступно</string>
+  <string name="tile_label" translatable="false">Tilt</string>
+</resources>

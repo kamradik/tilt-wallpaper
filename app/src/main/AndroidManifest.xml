@@ -3,15 +3,25 @@
   <uses-feature android:name="android.software.live_wallpaper" android:required="true"/>
   <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false"/>
   <uses-permission android:name="android.permission.SET_WALLPAPER"/>
-  <application android:theme="@style/AppTheme" android:label="Tilt — свои обои" android:icon="@drawable/icon" android:allowBackup="false" android:supportsRtl="true">
+  <application android:name=".TiltApp" android:theme="@style/AppTheme" android:label="Tilt — свои обои" android:icon="@drawable/icon" android:allowBackup="false" android:supportsRtl="true">
     <activity android:name=".AuthorActivity" android:exported="false" android:screenOrientation="portrait"/>
     <activity android:name=".SettingsActivity" android:exported="false" android:screenOrientation="portrait"/>
     <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="portrait">
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+      <!-- Long press on the Quick Settings tile opens the app. -->
+      <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES"/></intent-filter>
+      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
     </activity>
+    <activity android:name=".DebugActivity" android:exported="false" android:screenOrientation="portrait"/>
+    <!-- Random-effect shortcut: no UI, finishes in onCreate. -->
+    <activity android:name=".ShortcutActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay" android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity=""/>
     <service android:name=".TiltWallpaper" android:label="Tilt — свои обои" android:permission="android.permission.BIND_WALLPAPER" android:exported="true">
       <intent-filter><action android:name="android.service.wallpaper.WallpaperService"/></intent-filter>
       <meta-data android:name="android.service.wallpaper" android:resource="@xml/wallpaper"/>
+    </service>
+    <service android:name=".PauseTile" android:label="@string/tile_label" android:icon="@drawable/tile_pause" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">
+      <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE"/></intent-filter>
+      <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true"/>
     </service>
   </application>
 </manifest>

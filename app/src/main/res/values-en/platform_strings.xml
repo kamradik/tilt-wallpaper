@@ -1,0 +1,9 @@
+<resources>
+  <string name="description">Your own picture with perspective and optical blur as you tilt the phone.</string>
+  <string name="shortcut_random">Random effect</string>
+  <string name="shortcut_random_long">Random effect on the home screen</string>
+  <string name="shortcut_photo">Choose photo</string>
+  <string name="shortcut_photo_long">Choose a photo or video</string>
+  <string name="shortcut_settings">Settings</string>
+  <string name="shortcut_disabled">Unavailable</string>
+</resources>

@@ -38,3 +38,19 @@ dependencies {
     // Android supplies org.json at runtime; host-side tests need a real implementation.
     testImplementation 'org.json:json:20250517'
 }
+
+// ---- Instrumented UI smoke tests (androidTest only; nothing here reaches the app APK) ----
+// No androidx.test: the project runs with android.useAndroidX=false (and lint resolves the androidTest classpath), so
+// SmokeRunner is a plain Instrumentation that drives the UI through UiAutomation and reports in the `am instrument`
+// format Gradle parses.
+android {
+    defaultConfig { testInstrumentationRunner 'dev.solotilt.personal.SmokeRunner' }
+}
+// SmokeRunner saves screenshots in the app's external files; this copies them to build/screenshots after a connected run.
+tasks.register('pullScreenshots', Exec) {
+    def out = rootProject.layout.buildDirectory.dir('screenshots').get().asFile
+    doFirst { out.mkdirs() }
+    commandLine android.adbExecutable.absolutePath, 'pull', '/sdcard/Android/data/dev.solotilt.personal/files/screenshots/.', out.absolutePath
+    ignoreExitValue true
+}
+tasks.matching { it.name == 'connectedDebugAndroidTest' }.configureEach { finalizedBy 'pullScreenshots' }

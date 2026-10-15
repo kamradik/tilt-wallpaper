@@ -232,6 +232,8 @@ final class RenderLoop {
     void drawFrame(long vsync){
         framePending=false;if(closed||!visible||surface==null||!surface.isValid())return;
         if(failed){still();return;}if(scene==null||!hasCurrent)return;
+        // Diagnostics/pause hook (logic in PerformanceController): publish the effect id; the wallpaper (no error callback) paused by the QS tile or low battery keeps its last frame and schedules nothing until woken.
+        PerformanceController.effect=current.effect.id;if(performance.hold(error==null,surface,w,h,config,bitmaps[current.layer],handler,wake)){previousVsync=0;return;}
         // Ambient animation alone (no tilt in flight) runs at 30 fps under Auto; tilting gets the full rate.
         long pace=ambientOnly&&config.fps==WallpaperConfig.FPS_AUTO?Math.max(interval,33_333_333L):interval;
         if(lastDraw!=0&&vsync-lastDraw<pace-2000000){schedule();return;}
