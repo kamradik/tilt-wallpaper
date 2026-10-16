@@ -54,6 +54,9 @@ public final class PresetsActivity extends Activity {
         link(actions,tr("Сохранить текущий экран","Save the current screen"),this::saveCurrent);
         link(actions,tr("Импорт файла пресета","Import a preset file"),this::pickImport);
         footer(this,list,tr("Пресет запоминает эффект, все его настройки, кадр и копию фото. Видео до 50 МБ сохраняется целиком, длиннее — только первый кадр.","A preset keeps the effect, all its settings, the framing and a copy of the photo. Videos up to 50 MB are kept whole; larger ones keep only their first frame."));
+        LinearLayout looks=group(this,list,tr("Готовые образы","Ready looks"));
+        for(int i=0;i<Looks.ALL.length;i++)lookRow(looks,Looks.ALL[i],i);
+        footer(this,list,tr("Образ меняет эффект, второй слой и их настройки. Твоё фото или видео остаётся.","A look changes the effect, its second layer and their settings. Your photo or video stays."));
         LinearLayout saved=group(this,list,tr("Сохранённые","Saved"));
         if(config.presets.isEmpty()){TextView none=text(this,tr("Пока пусто. Нажми +, чтобы сохранить то, что сейчас на экране.","Nothing yet. Tap + to save what is on screen now."),15,REGULAR,SECONDARY);none.setPadding(dp(16),dp(14),dp(16),dp(14));saved.addView(none);}
         for(Preset p:config.presets)presetRow(saved,p);
@@ -77,6 +80,24 @@ public final class PresetsActivity extends Activity {
         row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));
         if(!editing){ImageView chevron=new ImageView(this);chevron.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));row.addView(chevron);}
         row.setOnClickListener(v->{if(busy)return;if(editing)rename(p);else actionsFor(p);});
+        card.addView(pressable(row));
+    }
+
+    void lookRow(LinearLayout card,Looks.Look look,int index){
+        if(index>0)separate(this,card);
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setMinimumHeight(dp(64));row.setPadding(dp(12),dp(8),dp(14),dp(8));row.setClickable(true);row.setFocusable(true);
+        ImageView thumb=new ImageView(this);thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);thumb.setBackground(new Shape(0xff2c2c2e,px(this,8)));thumb.setOutlineProvider(ViewOutlineProvider.BACKGROUND);thumb.setClipToOutline(true);
+        row.addView(thumb,new LinearLayout.LayoutParams(dp(36),dp(48)));
+        io.execute(()->{Bitmap b=ImageStore.preset(index%3,dp(48)/1560f);runOnUiThread(()->{if(!isDestroyed())thumb.setImageBitmap(b);});});
+        LinearLayout texts=new LinearLayout(this);texts.setOrientation(LinearLayout.VERTICAL);texts.setPadding(dp(12),0,dp(8),0);
+        texts.addView(text(this,look.name(config.en()),17,REGULAR,LABEL));texts.addView(text(this,look.recipe(config.en()),13,REGULAR,SECONDARY));
+        row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));
+        ImageView chevron=new ImageView(this);chevron.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));row.addView(chevron);
+        row.setOnClickListener(v->{if(busy)return;
+            String[] items={tr("Применить к главному экрану","Apply to Home Screen"),tr("Применить к блокировке","Apply to Lock Screen"),tr("Применить к обоим","Apply to both")};
+            actionSheet(this,look.name(config.en()),items,-1,tr("Отмена","Cancel"),i->{
+                String target=i==0?Presets.HOME:i==1?Presets.LOCK:Presets.BOTH;Looks.apply(getApplicationContext(),config,look,target);
+                done(i==1?tr("Теперь на блокировке","Now on the lock screen"):i==0?tr("Теперь на главном экране","Now on the home screen"):tr("Теперь на обоих экранах","Now on both screens"));});});
         card.addView(pressable(row));
     }
 
