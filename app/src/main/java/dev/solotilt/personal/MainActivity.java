@@ -159,7 +159,17 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 scrub.listener=on->{ImageStore.setScrub(this,mediaSlot(),on);renderer.reload();swap(status,on?tr("Наклоняй телефон, чтобы листать видео","Tilt to scrub through the video"):"");};row(this,card,tr("Перемотка наклоном","Tilt scrub"),scrub);}
             if(e.has(Effects.DEPTH)){TextView importDepth=text(this,tr("Импорт карты","Import map"),17,REGULAR,BLUE);importDepth.setClickable(true);importDepth.setOnClickListener(x->pick(PICK_DEPTH));row(this,card,tr("Глубина","Depth"),pressable(importDepth));}
             TextView reset=text(this,tr("Сбросить эффект","Reset effect"),17,REGULAR,0xffff453a);reset.setClickable(true);reset.setOnClickListener(x->{profile().reset(e.id);persist();refresh();});row(this,card,null,pressable(reset));
-            if(e.has(Effects.DEPTH))footer(this,params,tr("Глубина считается автоматически и приблизительно. Своя карта точнее: белое — ближе, чёрное — дальше.","Depth is estimated automatically. Your own map is more accurate: white is near, black is far."));
+            if(e.has(Effects.DEPTH))footer(this,params,tr("Глубину по фото рассчитывает нейросеть Depth Anything прямо на телефоне, один раз на фото. Можно загрузить свою карту: белое — ближе, чёрное — дальше.","Depth is computed from your photo by the Depth Anything network, on the phone, once per photo. You can also import your own map: white is near, black is far."));
+            // Second layer: weather, light or grain over the main effect, with its own sliders.
+            Effects.Effect top=p.overlayEffect();
+            LinearLayout layer=group(this,params,tr("Второй слой","Second layer"));
+            TextView choice=text(this,top==null?tr("Нет","None"):top.name(en),17,REGULAR,BLUE);choice.setClickable(true);choice.setOnClickListener(x->chooseLayer());
+            row(this,layer,tr("Поверх эффекта","On top"),pressable(choice));
+            if(top!=null){float[] lv=p.params(top.id);
+                unitSlider(this,layer,en?top.aEn:top.aRu,lv[0],x->{profile().params(top.id)[0]=x/100f;persist();});
+                unitSlider(this,layer,en?top.bEn:top.bRu,lv[1],x->{profile().params(top.id)[1]=x/100f;persist();});
+                if(top.hasSwitch()){Toggle t=new Toggle(this);t.setOn(lv[2]>.5f,false);t.setContentDescription(en?top.switchEn:top.switchRu);t.listener=on->{profile().params(top.id)[2]=on?1:0;persist();};row(this,layer,en?top.switchEn:top.switchRu,t);}}
+            footer(this,params,tr("Снег, капли, плёнка, свет или время суток поверх основного эффекта.","Snow, drops, film, light or time of day over the main effect."));
         }
         lockCard.removeAllViews();
         if(WallpaperConfig.LOCK.equals(slot)){
@@ -369,6 +379,13 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
     // ---------------------------------------------------------------- persistence & feedback
     final Runnable save=()->config.save(this);
+    /** Action sheet of the effects that can lie over the current one, plus None. */
+    void chooseLayer(){
+        WallpaperConfig.Profile p=profile();List<Effects.Effect> options=new ArrayList<>();
+        for(Effects.Effect x:Effects.ALL)if(Effects.layerable(p.effect(),x))options.add(x);
+        String[] items=new String[options.size()+1];items[0]=tr("Нет","None");for(int i=0;i<options.size();i++)items[i+1]=options.get(i).name(config.en());
+        PresetsActivity.actionSheet(this,tr("Второй слой","Second layer"),items,-1,tr("Отмена","Cancel"),i->{profile().overlay=i==0?null:options.get(i-1).id;persist();refresh();});
+    }
     void persist(){renderer.settings(config);WallpaperConfig.Profile p=profile();Ios.backdropFrame(p.scale,p.cropX,p.cropY);main.removeCallbacks(save);main.postDelayed(save,150);}
     void saveNow(){main.removeCallbacks(save);config.save(this);}
     void tick(View v){if(config.haptics)v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);}

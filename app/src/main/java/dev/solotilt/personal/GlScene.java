@@ -27,6 +27,13 @@ final class GlScene {
     /** Everything one draw call needs; RenderLoop reuses two instances (current and outgoing). */
     static final class Pass {
         int layer;Effects.Effect effect=Effects.ALL[0];float a,b,toggle,cropX=.5f,cropY=.5f,scale=1.08f,alpha=1;
+        /** A second-layer pass: its "photo" is the frame composed so far, in screen space (see overlay()). */
+        boolean screen;
+        /** The profile's second layer as this pass, if it has one; false (pass untouched) otherwise. */
+        boolean setOverlay(int layer,WallpaperConfig.Profile p){
+            Effects.Effect e=p.overlayEffect();if(e==null)return false;
+            this.layer=layer;effect=e;float[] v=p.params(e.id);a=v[0];b=v[1];toggle=v[2];screen=true;alpha=1;return true;
+        }
         void set(int layer,WallpaperConfig.Profile p){this.layer=layer;effect=p.effect();float[] v=p.current();a=v[0];b=v[1];toggle=v[2];cropX=p.cropX;cropY=p.cropY;scale=p.scale;}
         void copy(Pass o){layer=o.layer;effect=o.effect;a=o.a;b=o.b;toggle=o.toggle;cropX=o.cropX;cropY=o.cropY;scale=o.scale;}
     }
@@ -37,6 +44,8 @@ final class GlScene {
     final Layer[] layers={new Layer(),new Layer()};
     final float[] projection=new float[15];
     int blurSource,blurLevel,blurStep,renderWidth,renderHeight,neutralDepth,video,videoSource,videoTransform,videoLoop,videoMix;
+    /** Second-layer target (created on first use, sized with the quality target) and whether this frame ends in it. */
+    int overlayTexture,overlayFbo,overlayWidth,overlayHeight;boolean overlaid;
     /** Per layer: a copy of the clip's first frame for the seamless loop (created on first capture) and its size. */
     final int[] loopFrames=new int[2],loopSizes=new int[4];
 
@@ -154,15 +163,38 @@ final class GlScene {
         glBindFramebuffer(GL_READ_FRAMEBUFFER,0);glActiveTexture(GL_TEXTURE0);check("loop capture");
     }
 
-    void begin(){glBindFramebuffer(GL_FRAMEBUFFER,fbo[1]);glViewport(0,0,renderWidth,renderHeight);glBindVertexArray(vao[0]);}
+    void begin(){overlaid=false;glBindFramebuffer(GL_FRAMEBUFFER,fbo[1]);glViewport(0,0,renderWidth,renderHeight);glBindVertexArray(vao[0]);}
+    /**
+     * Draws a second-layer effect over the frame composed so far: the quality target gets mipmaps (effects sample
+     * blurred levels of their photo) and becomes the pass's image, and the result goes to a second target, which
+     * end() then shows. Reading and writing the same texture would be a feedback loop, hence the second target.
+     */
+    void overlay(Pass pass,int w,int h,float x,float y,float motion,float[] touch,float time,float wake,float[] env)throws IOException{
+        if(overlayFbo==0){int[] t=new int[1];glGenTextures(1,t,0);overlayTexture=t[0];glGenFramebuffers(1,t,0);overlayFbo=t[0];
+            glBindTexture(GL_TEXTURE_2D,overlayTexture);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);}
+        if(overlayWidth!=renderWidth||overlayHeight!=renderHeight){
+            glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,overlayTexture);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,renderWidth,renderHeight,0,GL_RGBA,GL_UNSIGNED_BYTE,null);
+            glBindFramebuffer(GL_FRAMEBUFFER,overlayFbo);glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,overlayTexture,0);
+            if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)throw new IllegalStateException("Overlay framebuffer");
+            overlayWidth=renderWidth;overlayHeight=renderHeight;
+        }
+        glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,scratch[1]);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);glGenerateMipmap(GL_TEXTURE_2D);
+        glBindFramebuffer(GL_FRAMEBUFFER,overlayFbo);glViewport(0,0,renderWidth,renderHeight);
+        draw(pass,w,h,x,y,motion,touch,time,wake,env);overlaid=true;
+    }
     /** Draws one effect pass into the quality framebuffer; alpha below 1 blends it over the previous pass. */
     void draw(Pass pass,int w,int h,float x,float y,float motion,float[] touch,float time,float wake,float[] env)throws IOException{
         Layer l=layers[pass.layer];int[] u=effect(pass.effect.id);glUseProgram(u[0]);
-        glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,l.image);glUniform1i(u[IMAGE+1],0);
-        glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,l.hasDepth?l.depth:neutralDepth);glUniform1i(u[DEPTH+1],1);
+        glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,pass.screen?scratch[1]:l.image);glUniform1i(u[IMAGE+1],0);
+        glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,l.hasDepth&&!pass.screen?l.depth:neutralDepth);glUniform1i(u[DEPTH+1],1);
         glActiveTexture(GL_TEXTURE2);glBindTexture(GL_TEXTURE_2D,scratch[2]);glUniform1i(u[WIPE+1],2);
         float aspect=(float)w/h,cover=aspect/((float)l.width/l.height),mm=w/pixelsPerMm;
-        glUniform2f(u[IMAGE_SIZE+1],l.width,l.height);glUniform2f(u[COVER+1],Math.min(1,cover),Math.min(1,1/cover));glUniform2f(u[CROP+1],pass.cropX,pass.cropY);glUniform1f(u[ZOOM+1],pass.scale);
+        if(pass.screen){
+            // The composed frame already fills the screen: identity framing. The negative y span cancels the flip
+            // coords() applies to photos (stored top row first), since a framebuffer stores the bottom row first.
+            glUniform2f(u[IMAGE_SIZE+1],renderWidth,renderHeight);glUniform2f(u[COVER+1],1,-1);glUniform2f(u[CROP+1],.5f,.5f);glUniform1f(u[ZOOM+1],1);
+        }else{glUniform2f(u[IMAGE_SIZE+1],l.width,l.height);glUniform2f(u[COVER+1],Math.min(1,cover),Math.min(1,1/cover));glUniform2f(u[CROP+1],pass.cropX,pass.cropY);glUniform1f(u[ZOOM+1],pass.scale);}
         glUniform1f(u[ASPECT+1],aspect);glUniform1f(u[SCREEN_MM+1],mm);
         // Classic's first slider scales the optical tilt; the projection is unused by other effects.
         float strength=pass.effect==Effects.ALL[0]?pass.a:.8f;
@@ -177,7 +209,7 @@ final class GlScene {
         glDrawArrays(GL_TRIANGLES,0,6);glDisable(GL_BLEND);
     }
     void end(int w,int h){
-        glBindFramebuffer(GL_READ_FRAMEBUFFER,fbo[1]);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,0);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER,overlaid?overlayFbo:fbo[1]);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,0);
         glBlitFramebuffer(0,0,renderWidth,renderHeight,0,0,w,h,GL_COLOR_BUFFER_BIT,GL_LINEAR);
         glBindFramebuffer(GL_FRAMEBUFFER,0);
     }
@@ -186,6 +218,6 @@ final class GlScene {
         for(int[] p:programs.values())glDeleteProgram(p[0]);programs.clear();glDeleteProgram(blur);
         glDeleteTextures(1,new int[]{field},0);glDeleteTextures(8,new int[]{layers[0].image,layers[1].image,layers[0].depth,layers[1].depth,scratch[0],scratch[1],neutralDepth,scratch[2]},0);
         for(int t:oes)if(t!=0)glDeleteTextures(1,new int[]{t},0);for(int t:loopFrames)if(t!=0)glDeleteTextures(1,new int[]{t},0);if(video!=0)glDeleteProgram(video);
-        glDeleteFramebuffers(3,fbo,0);glDeleteBuffers(1,vbo,0);glDeleteVertexArrays(1,vao,0);
+        glDeleteFramebuffers(3,fbo,0);if(overlayFbo!=0){glDeleteFramebuffers(1,new int[]{overlayFbo},0);glDeleteTextures(1,new int[]{overlayTexture},0);}glDeleteBuffers(1,vbo,0);glDeleteVertexArrays(1,vao,0);
     }
 }

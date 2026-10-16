@@ -29,6 +29,8 @@ final class RenderLoop {
     // Per layer (0 home, 1 lock): CPU copy for the still fallback, the media key it was loaded from, depth state.
     final Bitmap[] bitmaps=new Bitmap[2];final String[] loadedKeys=new String[2];final boolean[] depthReady=new boolean[2],manualDepth=new boolean[2];
     final GlScene.Pass current=new GlScene.Pass(),outgoing=new GlScene.Pass();boolean hasCurrent,fading;
+    /** The active profile's second layer, drawn over current (and over a crossfade in progress). */
+    final GlScene.Pass layered=new GlScene.Pass();boolean hasLayer;
     // Per layer video: the media key whose clip the layer plays (null: a photo), its player (lives as long as the EGL
     // context, since its SurfaceTexture belongs to it), a key that failed to play, and where playback was when GL went away.
     final String[] videoKeys=new String[2],brokenVideo=new String[2],resumeKeys=new String[2];final int[] resumeAt=new int[2];final VideoPlayer[] players=new VideoPlayer[2];
@@ -119,6 +121,7 @@ final class RenderLoop {
         String id=fallback?"classic":p.effect;
         if(hasCurrent&&(current.layer!=layer||!current.effect.id.equals(id))&&!config.reduceMotion){outgoing.copy(current);outgoing.alpha=1;fading=true;transitionStart=SystemClock.elapsedRealtimeNanos();transitionNanos=slotChange?380_000_000L:220_000_000L;}
         current.set(layer,p);if(fallback){current.effect=Effects.ALL[0];float[] d=current.effect.defaults();current.a=d[0];current.b=d[1];current.toggle=d[2];}
+        hasLayer=layered.setOverlay(layer,p)&&Effects.layerable(current.effect,layered.effect);
         hasCurrent=true;
     }
     void prepare(){
@@ -262,6 +265,7 @@ final class RenderLoop {
             scene.begin();
             if(transition<1){scene.draw(outgoing,w,h,x,y,motion,touch,time,wakeAge,env);current.alpha=transition*transition*(3-2*transition);}else current.alpha=1;
             scene.draw(current,w,h,x,y,motion,touch,time,wakeAge,env);
+            if(hasLayer)scene.overlay(layered,w,h,x,y,motion,touch,time,wakeAge,env);
             scene.end(w,h);
             long submitted=SystemClock.elapsedRealtimeNanos();
             if(!EGL14.eglSwapBuffers(display,eglSurface)){
@@ -271,8 +275,8 @@ final class RenderLoop {
             performance.sensorAgeMs=latest.timestamp==0?0:Math.max(0,(start-latest.timestamp)*1e-6f);
             float desired=performance.desiredScale(config.quality,w,h);
             if(performance.sample(performance.frameMs)||Math.abs(desired-qualityScale)>.01)handler.post(quality);
-            boolean live=!config.reduceMotion&&(simulationLive||current.effect.animated(current.toggle>.5f)
-                ||current.effect.has(Effects.TOUCH)&&touch[3]>0&&touch[2]<1.6f||current.effect.has(Effects.WIPE)&&wipeActive||wakeAge<1.2f);
+            boolean live=!config.reduceMotion&&(simulationLive||current.effect.animated(current.toggle>.5f)||hasLayer&&layered.effect.animated(layered.toggle>.5f)
+                ||(current.effect.has(Effects.TOUCH)||hasLayer&&layered.effect.has(Effects.TOUCH))&&touch[3]>0&&touch[2]<1.6f||current.effect.has(Effects.WIPE)&&wipeActive||wakeAge<1.2f);
             // A playing clip schedules its own frames as they decode (so at most its rate, paced like tilt by interval);
             // ambient animation rides on those frames instead of adding a clock of its own.
             boolean settling=scene.blurPending()||x!=targetX||y!=targetY||transition<1;ambientOnly=live&&!settling&&!video;
@@ -316,11 +320,13 @@ final class RenderLoop {
         float jolt=joltPeak;joltPeak=0;
         float kick=Math.max(Math.max(0,Math.min(1,(rate-120)/500)),Math.max(0,Math.min(1,(jolt-4.5f)/16)));
         shake=Math.max(shake*(float)Math.exp(-sec*4),kick);env[GlScene.ENV_SHAKE]=shake;
-        Effects.Effect e=current.effect;simulationLive=false;
+        // The physics belongs to whichever of the two layers has a simulation (Effects.layerable allows only one).
+        GlScene.Pass physics=current.effect.simulation==null&&hasLayer?layered:current;
+        Effects.Effect e=physics.effect;simulationLive=false;
         if(e.simulation==null){simulation=null;simulationFor=null;return;}
         if(!e.id.equals(simulationFor)){simulation=e.simulation.get();simulationFor=e.id;}
         boolean touching=touch[3]>0&&touch[2]<.12f;
-        simulation.configure(current.a,current.b,current.toggle>.5f);
+        simulation.configure(physics.a,physics.b,physics.toggle>.5f);
         simulationLive=simulation.step(Math.min(.1f,sec),env[GlScene.ENV_GX],env[GlScene.ENV_GY],shake,touching?touch[0]:Float.NaN,touching?touch[1]:Float.NaN);
         fieldBuffer.position(0);simulation.fill(fieldBuffer);scene.updateField(fieldBuffer);
     }

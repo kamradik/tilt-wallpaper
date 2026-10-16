@@ -79,14 +79,18 @@ final class WallpaperConfig {
     /** What one screen shows: an effect, its per-effect parameters, and how the photo is framed. */
     static final class Profile {
         String effect="classic";float cropX=.5f,cropY=.5f,scale=1.08f;
+        /** Second layer drawn over the effect (Effects.LAYER), or null. Its sliders live in params like any effect's. */
+        String overlay;
         final Map<String,float[]> params=new HashMap<>();
         Effects.Effect effect(){return Effects.get(effect);}
         /** [a, b, switch] for an effect, created from its defaults on first use. */
         float[] params(String id){return params.computeIfAbsent(id,k->Effects.get(k).defaults());}
         float[] current(){return params(effect);}
         boolean switchOn(){return current()[2]>.5f;}
+        /** The second layer when it is valid over the current effect, else null. */
+        Effects.Effect overlayEffect(){if(overlay==null)return null;Effects.Effect t=Effects.find(overlay);return t!=null&&Effects.layerable(effect(),t)?t:null;}
         void reset(String id){params.put(id,Effects.get(id).defaults());}
-        void copyFrom(Profile p){effect=p.effect;cropX=p.cropX;cropY=p.cropY;scale=p.scale;params.clear();for(Map.Entry<String,float[]> e:p.params.entrySet())params.put(e.getKey(),e.getValue().clone());}
+        void copyFrom(Profile p){effect=p.effect;overlay=p.overlay;cropX=p.cropX;cropY=p.cropY;scale=p.scale;params.clear();for(Map.Entry<String,float[]> e:p.params.entrySet())params.put(e.getKey(),e.getValue().clone());}
     }
 
     Profile profile(String slot){return LOCK.equals(slot)&&separateLock?lock:home;}
@@ -131,6 +135,7 @@ final class WallpaperConfig {
         p.cropX=safe(o.optDouble("cropX",.5),.5f,0,1);p.cropY=safe(o.optDouble("cropY",.5),.5f,0,1);p.scale=safe(o.optDouble("scale",1.08),1.08f,1.02f,2.5f);
         JSONObject params=o.optJSONObject("params");
         if(params!=null)for(Iterator<String> it=params.keys();it.hasNext();){String id=it.next();readParams(p,id,params.optJSONArray(id));}
+        Effects.Effect top=Effects.find(o.optString("overlay",""));p.overlay=top!=null&&top.has(Effects.LAYER)?top.id:null;
     }
     static void readFlat(JSONObject o,String prefix,Profile p){
         String effectKey=prefix.isEmpty()?"effectId":"lockEffectId",cap=prefix.isEmpty()?"":"lock";
@@ -152,7 +157,8 @@ final class WallpaperConfig {
     static JSONObject writeProfile(Profile p)throws JSONException{
         JSONObject params=new JSONObject();
         for(Map.Entry<String,float[]> e:p.params.entrySet())params.put(e.getKey(),new JSONArray().put(e.getValue()[0]).put(e.getValue()[1]).put(e.getValue()[2]));
-        return new JSONObject().put("effect",p.effect).put("cropX",p.cropX).put("cropY",p.cropY).put("scale",p.scale).put("params",params);
+        JSONObject o=new JSONObject().put("effect",p.effect).put("cropX",p.cropX).put("cropY",p.cropY).put("scale",p.scale).put("params",params);
+        if(p.overlay!=null)o.put("overlay",p.overlay);return o;
     }
     String json(){try{
         JSONArray favs=new JSONArray();for(String f:favorites)favs.put(f);JSONArray recent=new JSONArray();for(String r:recents)recent.put(r);
