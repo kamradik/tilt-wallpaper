@@ -5,5 +5,6 @@
   <string name="shortcut_photo">Choose photo</string>
   <string name="shortcut_photo_long">Choose a photo or video</string>
   <string name="shortcut_settings">Settings</string>
+  <string name="widget_description">Current effect, next effect and pause</string>
   <string name="shortcut_disabled">Unavailable</string>
 </resources>

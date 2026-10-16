@@ -6,5 +6,6 @@
   <string name="shortcut_photo_long">Выбрать фото или видео</string>
   <string name="shortcut_settings">Настройки</string>
   <string name="shortcut_disabled">Недоступно</string>
+  <string name="widget_description">Текущий эффект, следующий эффект и пауза</string>
   <string name="tile_label" translatable="false">Parallaxia</string>
 </resources>

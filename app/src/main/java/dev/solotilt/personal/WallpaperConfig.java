@@ -168,6 +168,6 @@ final class WallpaperConfig {
             .put("presets",presetsJson()).put("schedule",new JSONObject().put(HOME,homePlan.json()).put(LOCK,lockPlan.json())).toString();
     }catch(JSONException e){throw new IllegalStateException(e);}}
     JSONArray presetsJson()throws JSONException{JSONArray a=new JSONArray();for(Preset p:presets)a.put(p.json());return a;}
-    void save(Context c){ImageStore.prefs(c).edit().putString(KEY,json()).apply();}
+    void save(Context c){ImageStore.prefs(c).edit().putString(KEY,json()).apply();ParallaxWidget.refresh(c);}
     WallpaperConfig copy(){return parse(json());}
 }

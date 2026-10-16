@@ -10,7 +10,7 @@ public final class PauseTile extends TileService {
     @Override public void onStartListening(){super.onStartListening();update();}
     @Override public void onClick(){
         super.onClick();SharedPreferences p=ImageStore.prefs(this);
-        p.edit().putBoolean(PerformanceController.KEY_PAUSED,!p.getBoolean(PerformanceController.KEY_PAUSED,false)).apply();update();
+        p.edit().putBoolean(PerformanceController.KEY_PAUSED,!p.getBoolean(PerformanceController.KEY_PAUSED,false)).apply();update();ParallaxWidget.refresh(this);
     }
     void update(){
         Tile tile=getQsTile();if(tile==null)return;

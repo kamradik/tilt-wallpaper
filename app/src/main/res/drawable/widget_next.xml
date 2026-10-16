@@ -1,0 +1,4 @@
+<!-- Next effect: two chevrons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+  <path android:fillColor="#FFFFFF" android:pathData="M5,6.5v11l7.5,-5.5zM12.5,6.5v11l7.5,-5.5z"/>
+</vector>
