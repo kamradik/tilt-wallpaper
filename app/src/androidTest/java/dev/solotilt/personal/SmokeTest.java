@@ -108,6 +108,28 @@ public final class SmokeTest {
         check(bottom>top,"ground "+bottom/d.getWidth()+" should be nearer than sky "+top/d.getWidth()+" ("+t+" ms)");
         b.recycle();d.recycle();
     }
+    /** Stage 4 pieces on a real system: the widget's views inflate, the app icon switches and back, and a look and
+     *  the finishing modifiers survive saving the config. */
+    public void testWidgetIconsAndLooks()throws Exception{
+        android.widget.RemoteViews v=ParallaxWidget.views(app);check(v!=null&&v.getLayoutId()==R.layout.widget,"widget views");
+        v.apply(app,new android.widget.FrameLayout(app));  // inflates the layout like a launcher would
+        android.content.pm.PackageManager pm=app.getPackageManager();
+        try{
+            AppIcons.set(app,2);
+            check(pm.getComponentEnabledSetting(AppIcons.component(app,2))==android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,"sunset icon enabled");
+            check(pm.getComponentEnabledSetting(AppIcons.component(app,0))==android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,"dusk icon disabled");
+            check(AppIcons.current(app)==2,"current icon");
+            check(pm.getLaunchIntentForPackage(PKG)!=null,"still launchable with another icon");
+        }finally{AppIcons.set(app,0);}
+        check(AppIcons.current(app)==0,"icon restored");
+        WallpaperConfig before=WallpaperConfig.load(app);String saved=before.json();
+        try{
+            WallpaperConfig c=WallpaperConfig.load(app);Looks.apply(app,c,Looks.ALL[0],Presets.HOME);c.home.mods[0]=.5f;c.save(app);
+            WallpaperConfig back=WallpaperConfig.load(app);
+            check(Looks.ALL[0].effect.equals(back.home.effect)&&Looks.ALL[0].overlay.equals(back.home.overlay),"look applied");
+            check(Math.abs(back.home.mods[0]-.5f)<1e-4,"finishing saved");
+        }finally{ImageStore.prefs(app).edit().putString(WallpaperConfig.KEY,saved).commit();}
+    }
     /** U2-Net finds a clear subject: a red ball on a plain grey wall comes out with a mask (B = 255) that covers
      *  the ball and not the wall. */
     public void testSubjectMaskFindsTheBall()throws Exception{
