@@ -88,7 +88,25 @@ public final class SmokeTest {
     AccessibilityNodeInfo find(Pattern p){
         long end=SystemClock.uptimeMillis()+WAIT;
         while(SystemClock.uptimeMillis()<end){AccessibilityNodeInfo n=findNow(p);if(n!=null)return n;pause(200);}
-        throw new AssertionError("not on screen: "+p);
+        throw new AssertionError("not on screen: "+p+"
+window tree:
+"+dump());
+    }
+    /** The active window's accessibility tree, compact, for failure messages. */
+    String dump(){
+        StringBuilder b=new StringBuilder();AccessibilityNodeInfo root=ui.getRootInActiveWindow();
+        b.append("active window package: ").append(root==null?"none":root.getPackageName()).append('
+');
+        for(android.view.accessibility.AccessibilityWindowInfo w:ui.getWindows())b.append("window: ").append(w.getTitle()).append(" active=").append(w.isActive()).append(" focused=").append(w.isFocused()).append('
+');
+        dump(root,0,b);return b.length()>3000?b.substring(0,3000):b.toString();
+    }
+    static void dump(AccessibilityNodeInfo n,int depth,StringBuilder b){
+        if(n==null||depth>14||b.length()>3000)return;
+        CharSequence t=n.getText(),d=n.getContentDescription();String c=String.valueOf(n.getClassName());
+        if(t!=null||d!=null||n.isClickable())b.append("  ".repeat(Math.min(depth,8))).append(c.substring(c.lastIndexOf('.')+1)).append(t!=null?" text="+t:"").append(d!=null?" desc="+d:"").append(n.isVisibleToUser()?"":" INVISIBLE").append(n.isClickable()?" click":"").append('
+');
+        for(int i=0;i<n.getChildCount();i++)dump(n.getChild(i),depth+1,b);
     }
     AccessibilityNodeInfo findClass(String className){
         long end=SystemClock.uptimeMillis()+WAIT;
