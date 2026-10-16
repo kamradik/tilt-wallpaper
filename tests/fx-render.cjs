@@ -41,7 +41,7 @@ const avatar='data:image/jpeg;base64,'+fs.readFileSync(path.join(root,'app/src/m
       const photoTex=photos.map(texFrom),wipe=flat(4,4,0),field=flat(72,160,0);
       // Depth maps as MlDepth writes them: R depth (white near), G subject mask, B 255 = has a mask. The portrait's
       // subject is an ellipse round the face; the landscape has no mask and gets nearer toward the bottom.
-      const depthMap=(w,h,f)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);const px=new Uint8Array(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++)px.set(f(x/w,y/h),(y*w+x)*4);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,px);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);return t;};
+      const depthMap=(w,h,f)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);const px=new Uint8Array(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++)px.set(f(x/w,y/h),(y*w+x)*4);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,px);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);return t;};
       const depths=[depthMap(180,390,(x,y)=>{const e=Math.hypot((x-.5)/.36,(y-.52)/.3);const m=Math.max(0,Math.min(1,(1-e)*14));const d=m>0?220:60+y*80;return[d,m*255,255,255];}),depthMap(90,195,(x,y)=>{const d=y<.45?20:40+(y-.45)*380;return[Math.min(255,d),0,0,255];})];
       const vao=gl.createVertexArray();gl.bindVertexArray(vao);gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer());
       gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,0,0,1,-1,1,0,-1,1,0,1,-1,1,0,1,1,-1,1,0,1,1,1,1]),gl.STATIC_DRAW);

@@ -68,7 +68,8 @@ final class GlScene {
         glEnableVertexAttribArray(1);glVertexAttribPointer(1,2,GL_FLOAT,false,16,8);
         // Per layer: photo (mipmapped) and depth; then shared: blur scratch, quality target, neutral depth, wipe mask.
         int[] t=new int[8];glGenTextures(8,t,0);
-        for(int i=0;i<8;i++){glBindTexture(GL_TEXTURE_2D,t[i]);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,i<2?GL_LINEAR_MIPMAP_LINEAR:GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);}
+        for(int i=0;i<8;i++){glBindTexture(GL_TEXTURE_2D,t[i]);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,i<4?GL_LINEAR_MIPMAP_LINEAR:GL_LINEAR);  // photos and depth maps are mipmapped
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);}
         layers[0].image=t[0];layers[1].image=t[1];layers[0].depth=t[2];layers[1].depth=t[3];scratch[0]=t[4];scratch[1]=t[5];neutralDepth=t[6];scratch[2]=t[7];
         glBindTexture(GL_TEXTURE_2D,neutralDepth);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,ByteBuffer.wrap(new byte[]{127,127,127,-1}));
         glBindTexture(GL_TEXTURE_2D,scratch[2]);glPixelStorei(GL_UNPACK_ALIGNMENT,1);glTexImage2D(GL_TEXTURE_2D,0,GL_R8,WIPE_W,WIPE_H,0,GL_RED,GL_UNSIGNED_BYTE,ByteBuffer.allocateDirect(WIPE_W*WIPE_H));
@@ -94,7 +95,7 @@ final class GlScene {
         Layer l=layers[index];l.width=b.getWidth();l.height=b.getHeight();l.levels=(int)(Math.log(Math.max(l.width,l.height))/Math.log(2));
         glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,l.image);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAX_LEVEL,l.levels);GLUtils.texImage2D(GL_TEXTURE_2D,0,b,0);glGenerateMipmap(GL_TEXTURE_2D);l.nextLevel=1;l.hasDepth=false;check("upload");
     }
-    void uploadDepth(int index,Bitmap b){glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,layers[index].depth);GLUtils.texImage2D(GL_TEXTURE_2D,0,b,0);glActiveTexture(GL_TEXTURE0);layers[index].hasDepth=true;check("depth upload");}
+    void uploadDepth(int index,Bitmap b){glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,layers[index].depth);GLUtils.texImage2D(GL_TEXTURE_2D,0,b,0);glGenerateMipmap(GL_TEXTURE_2D);glActiveTexture(GL_TEXTURE0);layers[index].hasDepth=true;check("depth upload");}
     boolean ready(int index){return layers[index].width>0;}
     boolean blurPending(){return layers[0].nextLevel<=layers[0].levels&&layers[0].width>0||layers[1].nextLevel<=layers[1].levels&&layers[1].width>0;}
     void updateField(ByteBuffer rgba){glActiveTexture(GL_TEXTURE3);glBindTexture(GL_TEXTURE_2D,field);glPixelStorei(GL_UNPACK_ALIGNMENT,1);rgba.position(0);glTexSubImage2D(GL_TEXTURE_2D,0,0,0,Simulation.W,Simulation.H,GL_RGBA,GL_UNSIGNED_BYTE,rgba);glActiveTexture(GL_TEXTURE0);}
