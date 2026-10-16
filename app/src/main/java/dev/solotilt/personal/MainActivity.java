@@ -456,6 +456,23 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             final boolean success=ok;runOnUiThread(()->{if(isDestroyed())return;importing=false;choose.setEnabled(editable());install.setEnabled(true);
                 if(success)mediaChanged(tr("Серия готова: наклоняй телефон.","Series ready: tilt the phone."));else showError("image");});});
     }
+    boolean motionChecked;
+    /** Looks for the clip inside a picked photo off the main thread; asks whether to use it, else imports the photo. */
+    void checkMotionPhoto(Intent data){
+        Uri uri=data.getData();Context app=getApplicationContext();File clip=new File(app.getCacheDir(),"motion.mp4");
+        swap(status,tr("Подготовка изображения…","Preparing image…"));
+        io.execute(()->{boolean found;try{found=MotionPhoto.extract(app,uri,clip);}catch(Exception|OutOfMemoryError e){found=false;}
+            final boolean motion=found;
+            runOnUiThread(()->{if(isDestroyed())return;
+                if(!motion){motionChecked=true;onActivityResult(PICK_PHOTO,RESULT_OK,data);return;}
+                PresetsActivity.actionSheet(this,tr("Это живое фото: в нём есть короткое видео.","This is a motion photo: it holds a short clip."),
+                    new String[]{tr("Сделать видеообоями","Use as a video wallpaper"),tr("Только фото","Photo only")},-1,tr("Отмена","Cancel"),i->{
+                        if(i==0)startActivityForResult(VideoTrimActivity.intent(this,Uri.fromFile(clip),mediaSlot()),TRIM);
+                        else{motionChecked=true;onActivityResult(PICK_PHOTO,RESULT_OK,data);}
+                    });
+            });
+        });
+    }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(request==PICK_SERIES){if(result==RESULT_OK&&data!=null)importSeries(data);return;}
         if(request==ONBOARD){if(result==RESULT_OK)main.postDelayed(this::install,300);return;}
@@ -463,7 +480,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         if(request==TRIM){renderer.reload();mediaChanged(result==RESULT_OK?tr("Видео готово. Выбери эффект.","Video ready. Pick an effect."):"");return;}
         // Videos go through the trim screen (cut, audio removed) before they become the wallpaper.
         if(request==PICK_PHOTO&&result==RESULT_OK&&data!=null&&data.getData()!=null){String type=getContentResolver().getType(data.getData());
-            if(type!=null&&type.startsWith("video/")){startActivityForResult(VideoTrimActivity.intent(this,data.getData(),mediaSlot()),TRIM);return;}}
+            if(type!=null&&type.startsWith("video/")){startActivityForResult(VideoTrimActivity.intent(this,data.getData(),mediaSlot()),TRIM);return;}
+            // A motion photo (Samsung / Google) carries a short clip: offer it as a video wallpaper.
+            if(!motionChecked){checkMotionPhoto(data);return;}
+            motionChecked=false;}
         if((request!=PICK_PHOTO&&request!=PICK_DEPTH)||result!=RESULT_OK||data==null||data.getData()==null)return;
         importing=true;choose.setEnabled(false);install.setEnabled(false);swap(status,tr("Подготовка изображения…","Preparing image…"));Uri uri=data.getData();Context app=getApplicationContext();String m=mediaSlot();
         io.execute(()->{boolean ok=true;try{if(request==PICK_PHOTO){String type=app.getContentResolver().getType(uri);if(type!=null&&type.startsWith("video/"))ImageStore.importVideo(app,uri,m);else ImageStore.importImage(app,uri,m);DepthMapManager.prune(app);}else DepthMapManager.importDepth(app,uri,m);}catch(Exception|OutOfMemoryError e){ok=false;}
