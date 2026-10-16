@@ -31,7 +31,7 @@ public final class SmokeTest {
         shell("input keyevent KEYCODE_WAKEUP");shell("wm dismiss-keyguard");ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);
         try{ui.waitForIdle(500,5000);}catch(Exception ignored){}pause(800);  // let the Home press settle before launching
         // A fresh emulator would open the first-launch onboarding; the hub test starts past it (testOnboarding covers it).
-        ImageStore.prefs(app).edit().putBoolean(OnboardingActivity.SEEN,true).commit();
+        ImageStore.prefs(app).edit().putBoolean(OnboardingActivity.SEEN,true).putInt(WhatsNewActivity.KEY,WhatsNewActivity.NEWS).commit();
         launch();
     }
     /** Starts the app through the activity manager and waits until it is drawn: Context.startActivity from the
@@ -155,6 +155,33 @@ public final class SmokeTest {
             long want=SeriesImport.frames(3)*1000L/SeriesImport.FPS;check(Math.abs(ms-want)<=120,"series length "+ms+" ms, want "+want);
         }
         out.delete();for(android.net.Uri u:uris)new File(u.getPath()).delete();
+    }
+    /** An updated install shows What's New once; Continue closes it for good. */
+    public void testWhatsNewOnce()throws Exception{
+        ImageStore.prefs(app).edit().putInt(WhatsNewActivity.KEY,0).commit();launch();
+        find(any("Что нового","What’s New"));pause(800);shot("00_whats_new");
+        click(find(any("Продолжить","Continue")));
+        find(any("Настройки","Settings"));check(!WhatsNewActivity.due(app),"What's New should be marked seen");
+    }
+    /** A clip in a slot takes a cinemagraph mask, the editor opens on it, and leaving video drops the mask. */
+    public void testCinemagraphMask()throws Exception{
+        java.util.List<android.net.Uri> uris=new java.util.ArrayList<>();
+        for(int i=0;i<2;i++){Bitmap b=Bitmap.createBitmap(600,900,Bitmap.Config.ARGB_8888);b.eraseColor(0xff000000|(120*i)<<16|0x3060);
+            File f=new File(app.getCacheDir(),"cine"+i+".png");try(java.io.FileOutputStream o=new java.io.FileOutputStream(f)){b.compress(Bitmap.CompressFormat.PNG,100,o);}b.recycle();uris.add(android.net.Uri.fromFile(f));}
+        File clip=new File(app.getCacheDir(),"cine-test.mp4");SeriesImport.encode(app,uris,clip,null);
+        String slot=WallpaperConfig.HOME;
+        try{
+            ImageStore.importVideo(app,android.net.Uri.fromFile(clip),slot);
+            check(ImageStore.isVideo(app,slot)&&!ImageStore.hasCine(app,slot),"a fresh clip has no mask");
+            Bitmap mask=Bitmap.createBitmap(120,180,Bitmap.Config.ARGB_8888);new android.graphics.Canvas(mask).drawCircle(60,90,40,new android.graphics.Paint(){{setColor(0xffffffff);}});
+            ImageStore.setCine(app,slot,mask);mask.recycle();
+            check(ImageStore.hasCine(app,slot)&&ImageStore.cineRevision(app,slot)!=0,"the mask should be saved");
+            Bitmap back=ImageStore.cine(app,slot);check(back!=null&&(back.getPixel(60,90)>>>24)>200&&(back.getPixel(5,5)>>>24)<10,"the mask should read back painted in the middle only");back.recycle();
+            app.startActivity(CinemagraphActivity.intent(app,slot).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            find(any("Кисть","Brush"));pause(1200);shot("12_cinemagraph");back();
+            ImageStore.usePreset(app,slot,0);
+            check(!ImageStore.cineFile(app,slot).exists(),"leaving video should drop the mask");
+        }finally{ImageStore.usePreset(app,slot,0);clip.delete();for(android.net.Uri u:uris)new File(u.getPath()).delete();}
     }
     /** A look survives a round trip through a QR picture: encode, draw, read back with ZXing, decode. */
     public void testLookQrRoundTrip()throws Exception{
