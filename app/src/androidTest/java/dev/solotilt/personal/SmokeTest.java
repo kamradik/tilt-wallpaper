@@ -176,6 +176,11 @@ public final class SmokeTest {
         check(((centre>>8)&255)>200,"the ball should be in the mask, G="+((centre>>8)&255));
         check(((corner>>8)&255)<50,"the wall should not be in the mask, G="+((corner>>8)&255));
         check(((centre>>16)&255)>((corner>>16)&255),"the ball should be nearer than the wall");
+        // MI-GAN paints the wall in where the ball was: the plate's centre must be grey, not red.
+        Bitmap plate=Inpaint.plate(app,b,d);check(plate!=null,"a masked map gets a plate");
+        int pc=plate.getPixel(plate.getWidth()/2,plate.getHeight()*330/640);int r=(pc>>16)&255,g=(pc>>8)&255,bl=pc&255;
+        check(r-Math.max(g,bl)<40,"the ball should be painted out of the plate, centre "+Integer.toHexString(pc));
+        plate.recycle();
         b.recycle();d.recycle();
     }
     /** The transcoder cuts on the exact frame: a clip whose frame i is grey level 5*i, keyframes 2 s apart, cut at

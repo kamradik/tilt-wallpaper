@@ -134,7 +134,7 @@ final class RenderLoop {
         final boolean[] want=new boolean[2],needDepth=new boolean[2],missingDepth=new boolean[2];final String[] keys=new String[2],videos=new String[2],loaded=loadedKeys.clone();
         for(int i=0;i<2;i++){want[i]=needed(i);needDepth[i]=needsDepth(i);missingDepth[i]=needDepth[i]&&!depthReady[i];}
         PREPARE.execute(()->{
-            final Bitmap[] photos=new Bitmap[2],maps=new Bitmap[2];final boolean[] imported=new boolean[2];String failure=null;final long[][] keyframes=new long[2][];
+            final Bitmap[] photos=new Bitmap[2],maps=new Bitmap[2],plates=new Bitmap[2];final boolean[] imported=new boolean[2];String failure=null;final long[][] keyframes=new long[2][];
             for(int i=0;i<2;i++){
                 if(!want[i])continue;String slot=mediaSlot(i);keys[i]=DepthMapManager.key(context,slot);
                 // A video slot's photo is its poster frame: it is the still fallback, the first frame shown and the depth source.
@@ -145,12 +145,12 @@ final class RenderLoop {
                     if(keyframes[i]==null)VideoDepth.ensure(context,slot,keys[i],()->handler.post(this::prepare));}
                 if(keys[i].equals(loaded[i])&&!missingDepth[i])continue;
                 try{photos[i]=ImageStore.load(context,slot);
-                    if(needDepth[i])try{maps[i]=DepthMapManager.load(context,photos[i],keys[i]);imported[i]=DepthMapManager.manual(context,keys[i]);}catch(Exception|OutOfMemoryError e){Log.w("SoloDepth","Preparation failed",e);failure="depth";}
+                    if(needDepth[i])try{maps[i]=DepthMapManager.load(context,photos[i],keys[i]);imported[i]=DepthMapManager.manual(context,keys[i]);if(!imported[i])plates[i]=DepthMapManager.plate(context,keys[i]);}catch(Exception|OutOfMemoryError e){Log.w("SoloDepth","Preparation failed",e);failure="depth";}
                 }catch(Exception|OutOfMemoryError e){Log.w("SoloImage","Preparation failed",e);failure="image";}
             }
             final String problem=failure;
             boolean posted=handler.post(()->{
-                if(closed||request!=generation){recycle(photos);recycle(maps);return;}
+                if(closed||request!=generation){recycle(photos);recycle(maps);recycle(plates);return;}
                 loading=false;try{
                     System.arraycopy(videos,0,videoKeys,0,2);
                     for(int i=0;i<2;i++)if(want[i]){videoDepth[i]=keyframes[i];videoDepthShown[i]=-1;}
@@ -158,12 +158,12 @@ final class RenderLoop {
                         if(photos[i]==null)continue;
                         if(bitmaps[i]!=null)bitmaps[i].recycle();bitmaps[i]=photos[i];photos[i]=null;loadedKeys[i]=keys[i];depthReady[i]=false;
                         if(scene!=null)scene.upload(i,bitmaps[i]);
-                        if(maps[i]!=null&&scene!=null){scene.uploadDepth(i,maps[i]);depthReady[i]=true;manualDepth[i]=imported[i];}
+                        if(maps[i]!=null&&scene!=null){scene.uploadDepth(i,maps[i]);scene.uploadPlate(i,plates[i]);depthReady[i]=true;manualDepth[i]=imported[i];}
                     }
                     syncVideo();if(problem!=null)notifyError(problem);retarget(false);schedule();
-                }catch(Exception|OutOfMemoryError ex){fail(ex);}finally{recycle(photos);recycle(maps);}
+                }catch(Exception|OutOfMemoryError ex){fail(ex);}finally{recycle(photos);recycle(maps);recycle(plates);}
             });
-            if(!posted){recycle(photos);recycle(maps);}
+            if(!posted){recycle(photos);recycle(maps);recycle(plates);}
         });
     }
     static void recycle(Bitmap[] items){for(int i=0;i<items.length;i++)if(items[i]!=null){items[i].recycle();items[i]=null;}}

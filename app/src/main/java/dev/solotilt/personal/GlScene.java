@@ -15,15 +15,15 @@ import static android.opengl.GLES30.*;
  * A video layer is the same 2D texture, refilled from the decoder's OES texture on each new frame (blitVideo).
  */
 final class GlScene {
-    static final String[] UNIFORMS={"u_image","u_depth","u_wipeMask","u_imageSize","u_coverScale","u_crop","u_zoom","u_aspect","u_projectionX","u_projectionY","u_projectionZ","u_gap","u_blurGap","u_screenWidthMm","u_tilt","u_touch","u_params","u_toggle","u_motion","u_time","u_wake","u_alpha","u_field","u_gravity","u_charge","u_day","u_mods"};
-    static final int IMAGE=0,DEPTH=1,WIPE=2,IMAGE_SIZE=3,COVER=4,CROP=5,ZOOM=6,ASPECT=7,PROJECTION=8,SCREEN_MM=13,TILT=14,TOUCH=15,PARAMS=16,TOGGLE=17,MOTION=18,TIME=19,WAKE=20,ALPHA=21,FIELD=22,GRAVITY=23,CHARGE=24,DAY=25,MODS=26;
+    static final String[] UNIFORMS={"u_image","u_depth","u_wipeMask","u_imageSize","u_coverScale","u_crop","u_zoom","u_aspect","u_projectionX","u_projectionY","u_projectionZ","u_gap","u_blurGap","u_screenWidthMm","u_tilt","u_touch","u_params","u_toggle","u_motion","u_time","u_wake","u_alpha","u_field","u_gravity","u_charge","u_day","u_mods","u_plate","u_hasPlate"};
+    static final int IMAGE=0,DEPTH=1,WIPE=2,IMAGE_SIZE=3,COVER=4,CROP=5,ZOOM=6,ASPECT=7,PROJECTION=8,SCREEN_MM=13,TILT=14,TOUCH=15,PARAMS=16,TOGGLE=17,MOTION=18,TIME=19,WAKE=20,ALPHA=21,FIELD=22,GRAVITY=23,CHARGE=24,DAY=25,MODS=26,PLATE=27,HAS_PLATE=28;
     static final int WIPE_W=64,WIPE_H=128;
     /** Indices into the env array draw() takes: charging 0/1, battery 0..1, time of day 0..1, screen gravity x/y, shake 0..1. */
     static final int ENV_CHARGING=0,ENV_LEVEL=1,ENV_DAY=2,ENV_GX=3,ENV_GY=4,ENV_SHAKE=5,ENV_SIZE=6;
     int field;
 
     /** One photo with its blur pyramid and optional depth map. */
-    static final class Layer { int image,depth,width,height,levels,nextLevel;boolean hasDepth; }
+    static final class Layer { int image,depth,plate,width,height,levels,nextLevel;boolean hasDepth,hasPlate; }
     /** Everything one draw call needs; RenderLoop reuses two instances (current and outgoing). */
     static final class Pass {
         int layer;Effects.Effect effect=Effects.ALL[0];float a,b,toggle,cropX=.5f,cropY=.5f,scale=1.08f,alpha=1;
@@ -94,6 +94,16 @@ final class GlScene {
     void upload(int index,Bitmap b){
         Layer l=layers[index];l.width=b.getWidth();l.height=b.getHeight();l.levels=(int)(Math.log(Math.max(l.width,l.height))/Math.log(2));
         glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,l.image);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAX_LEVEL,l.levels);GLUtils.texImage2D(GL_TEXTURE_2D,0,b,0);glGenerateMipmap(GL_TEXTURE_2D);l.nextLevel=1;l.hasDepth=false;check("upload");
+    }
+    /** The layer's background plate (Inpaint), or none: depth effects then fill behind the subject themselves. */
+    void uploadPlate(int index,Bitmap b){
+        Layer l=layers[index];
+        if(b==null){l.hasPlate=false;return;}
+        if(l.plate==0){int[] t=new int[1];glGenTextures(1,t,0);l.plate=t[0];glBindTexture(GL_TEXTURE_2D,l.plate);
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);}
+        glActiveTexture(GL_TEXTURE5);glBindTexture(GL_TEXTURE_2D,l.plate);GLUtils.texImage2D(GL_TEXTURE_2D,0,b,0);glGenerateMipmap(GL_TEXTURE_2D);glActiveTexture(GL_TEXTURE0);
+        l.hasPlate=true;check("plate upload");
     }
     void uploadDepth(int index,Bitmap b){glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,layers[index].depth);GLUtils.texImage2D(GL_TEXTURE_2D,0,b,0);glGenerateMipmap(GL_TEXTURE_2D);glActiveTexture(GL_TEXTURE0);layers[index].hasDepth=true;check("depth upload");}
     boolean ready(int index){return layers[index].width>0;}
@@ -208,7 +218,9 @@ final class GlScene {
         glUniform2f(u[TILT+1],FoldMath.clamp(x/65,-1,1),FoldMath.clamp(y/65,-1,1));glUniform4fv(u[TOUCH+1],1,touch,0);
         glUniform2f(u[PARAMS+1],pass.a,pass.b);glUniform1f(u[TOGGLE+1],pass.toggle);glUniform1f(u[MOTION+1],motion);
         glUniform1f(u[TIME+1],time);glUniform2f(u[WAKE+1],wake,wake<3?1:0);glUniform1f(u[ALPHA+1],pass.alpha);
-        glActiveTexture(GL_TEXTURE3);glBindTexture(GL_TEXTURE_2D,field);glUniform1i(u[FIELD+1],3);glActiveTexture(GL_TEXTURE0);
+        glActiveTexture(GL_TEXTURE3);glBindTexture(GL_TEXTURE_2D,field);glUniform1i(u[FIELD+1],3);
+        boolean plate=l.hasPlate&&l.hasDepth&&!pass.screen;glActiveTexture(GL_TEXTURE5);glBindTexture(GL_TEXTURE_2D,plate?l.plate:neutralDepth);glUniform1i(u[PLATE+1],5);glUniform1f(u[HAS_PLATE+1],plate?1:0);glActiveTexture(GL_TEXTURE0);
+        glActiveTexture(GL_TEXTURE0);
         glUniform3f(u[GRAVITY+1],env[ENV_GX],env[ENV_GY],env[ENV_SHAKE]);glUniform2f(u[CHARGE+1],env[ENV_CHARGING],env[ENV_LEVEL]);glUniform1f(u[DAY+1],env[ENV_DAY]);glUniform4f(u[MODS+1],pass.mods[0],pass.mods[1],pass.mods[2],pass.mods[3]);
         if(pass.alpha<.999f){glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);}
         glDrawArrays(GL_TRIANGLES,0,6);glDisable(GL_BLEND);
@@ -221,7 +233,7 @@ final class GlScene {
     static void check(String at){int e=glGetError();if(e!=GL_NO_ERROR)throw new IllegalStateException(at+": GL "+Integer.toHexString(e));}
     void close(){
         for(int[] p:programs.values())glDeleteProgram(p[0]);programs.clear();glDeleteProgram(blur);
-        glDeleteTextures(1,new int[]{field},0);glDeleteTextures(8,new int[]{layers[0].image,layers[1].image,layers[0].depth,layers[1].depth,scratch[0],scratch[1],neutralDepth,scratch[2]},0);
+        glDeleteTextures(1,new int[]{field},0);for(Layer l:layers)if(l.plate!=0)glDeleteTextures(1,new int[]{l.plate},0);glDeleteTextures(8,new int[]{layers[0].image,layers[1].image,layers[0].depth,layers[1].depth,scratch[0],scratch[1],neutralDepth,scratch[2]},0);
         for(int t:oes)if(t!=0)glDeleteTextures(1,new int[]{t},0);for(int t:loopFrames)if(t!=0)glDeleteTextures(1,new int[]{t},0);if(video!=0)glDeleteProgram(video);
         glDeleteFramebuffers(3,fbo,0);if(overlayFbo!=0){glDeleteFramebuffers(1,new int[]{overlayFbo},0);glDeleteTextures(1,new int[]{overlayTexture},0);}glDeleteBuffers(1,vbo,0);glDeleteVertexArrays(1,vao,0);
     }

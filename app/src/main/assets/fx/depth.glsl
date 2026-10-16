@@ -20,7 +20,10 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     vec2 ub=uv-dB*(1.0-.45*depthAt(uv-dB));
     vec3 back=photo(ub,0.0);
     float covered=subjectAt(ub);
-    if(covered>.05&&relLen>1e-4){
+    if(covered>.05&&u_hasPlate>.5){
+        // The painted background plate shows what stands behind the subject.
+        back=mix(back,plate(ub,0.0),smoothstep(.05,.5,covered));
+    }else if(covered>.05&&relLen>1e-4){
         // The sample landed on the subject: walk away from the subject's motion until the background shows.
         vec2 p=ub;float found=0.0;
         for(int i=1;i<=14;i++){
