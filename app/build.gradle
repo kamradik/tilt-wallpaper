@@ -46,11 +46,11 @@ dependencies {
 android {
     defaultConfig { testInstrumentationRunner 'dev.solotilt.personal.SmokeRunner' }
 }
-// SmokeRunner saves screenshots in the app's external files; this copies them to build/screenshots after a connected run.
+// SmokeTest copies its screenshots to /data/local/tmp (the app's own files go with the uninstall); this pulls them to build/screenshots.
 tasks.register('pullScreenshots', Exec) {
     def out = rootProject.layout.buildDirectory.dir('screenshots').get().asFile
     doFirst { out.mkdirs() }
-    commandLine android.adbExecutable.absolutePath, 'pull', '/sdcard/Android/data/dev.solotilt.personal/files/screenshots/.', out.absolutePath
+    commandLine android.adbExecutable.absolutePath, 'pull', '/data/local/tmp/tilt-screenshots/.', out.absolutePath
     ignoreExitValue true
 }
 tasks.matching { it.name == 'connectedDebugAndroidTest' }.configureEach { finalizedBy 'pullScreenshots' }

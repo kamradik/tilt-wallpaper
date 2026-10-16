@@ -101,8 +101,18 @@ final class GlScene {
         glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,scratch[0],0);
         if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)throw new IllegalStateException("Blur framebuffer incomplete");
         glViewport(0,0,w,h);glUseProgram(blur);glUniform1i(blurSource,0);glBindTexture(GL_TEXTURE_2D,l.image);glUniform1f(blurLevel,level-1);glUniform2f(blurStep,1f/Math.max(1,l.width>>(level-1)),0);glDrawArrays(GL_TRIANGLES,0,6);
-        glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,l.image,level);glBindTexture(GL_TEXTURE_2D,scratch[0]);glUniform1f(blurLevel,0);glUniform2f(blurStep,0,1f/Math.max(1,l.height>>(level-1)));glDrawArrays(GL_TRIANGLES,0,6);
-        glBindFramebuffer(GL_FRAMEBUFFER,0);check("blur");return blurPending();
+        glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,l.image,level);
+        // Some drivers (the emulator's SwiftShader among them) refuse a mip level as a render target. The box-filtered
+        // mips from glGenerateMipmap are still there, so give up on the Gaussian pass instead of failing the renderer.
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE){return skipBlur(l,"mip level "+level+" is not renderable");}
+        glBindTexture(GL_TEXTURE_2D,scratch[0]);glUniform1f(blurLevel,0);glUniform2f(blurStep,0,1f/Math.max(1,l.height>>(level-1)));glDrawArrays(GL_TRIANGLES,0,6);
+        glBindFramebuffer(GL_FRAMEBUFFER,0);int e=glGetError();if(e!=GL_NO_ERROR)return skipBlur(l,"GL "+Integer.toHexString(e));
+        return blurPending();
+    }
+    boolean skipBlur(Layer l,String why){
+        glBindFramebuffer(GL_FRAMEBUFFER,0);while(glGetError()!=GL_NO_ERROR){}
+        l.nextLevel=l.levels+1;CrashLog.note("Gaussian blur pyramid unavailable ("+why+"); using plain mipmaps");
+        return blurPending();
     }
 
     /** The layer's external texture for a SurfaceTexture, created on first use so devices without OES video never touch it. */

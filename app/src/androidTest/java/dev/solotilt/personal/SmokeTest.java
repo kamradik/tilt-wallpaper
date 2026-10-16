@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  * expose usable labels. Labels match in Russian or English, whatever the in-app language is.
  */
 public final class SmokeTest {
-    static final String PKG="dev.solotilt.personal";static final long WAIT=10_000;
+    static final String PKG="dev.solotilt.personal",DEVICE_SHOTS="/data/local/tmp/tilt-screenshots";static final long WAIT=10_000;
     final Instrumentation instrumentation;final UiAutomation ui;final Context app;final File shots;
 
     SmokeTest(Instrumentation instrumentation){
@@ -26,6 +26,7 @@ public final class SmokeTest {
         shots=new File(app.getExternalFilesDir(null),"screenshots");
     }
     void setUp()throws Exception{
+        shell("mkdir -p "+DEVICE_SHOTS);
         if(!shots.isDirectory()&&!shots.mkdirs())throw new IOException("Cannot create "+shots);
         shell("input keyevent KEYCODE_WAKEUP");shell("wm dismiss-keyguard");ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);
         // A fresh emulator would open the first-launch onboarding; the hub test starts past it (testOnboarding covers it).
@@ -79,6 +80,8 @@ public final class SmokeTest {
         try{ui.waitForIdle(300,3000);}catch(Exception ignored){}
         Bitmap b=ui.takeScreenshot();check(b!=null,"screenshot "+name);
         try(OutputStream out=new FileOutputStream(new File(shots,name+".png"))){b.compress(Bitmap.CompressFormat.PNG,100,out);}finally{b.recycle();}
+        // connectedAndroidTest uninstalls the app (and its external files) when it finishes: keep a copy where adb can pull it.
+        shell("mkdir -p "+DEVICE_SHOTS);shell("cp "+new File(shots,name+".png").getAbsolutePath()+" "+DEVICE_SHOTS+"/");
     }
     /** First node in the app's window whose text or content description contains the pattern. */
     AccessibilityNodeInfo findNow(Pattern p){AccessibilityNodeInfo root=ui.getRootInActiveWindow();return root==null?null:search(root,p,null);}
