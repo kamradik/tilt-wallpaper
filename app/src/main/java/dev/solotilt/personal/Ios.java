@@ -126,6 +126,13 @@ final class Ios {
         }};
     }
 
+    /** Squash and stretch of a moving glass panel: it lengthens along its motion and narrows a little, by speed
+     *  (px/s), from the given pivot; at rest it is square again. A spring's wobble comes through as a jiggle. */
+    static void jelly(View v,float velocity,float pivotY){
+        if(still()){if(v.getScaleY()!=1){v.setScaleX(1);v.setScaleY(1);}return;}
+        float k=Math.min(.045f,Math.abs(velocity)/9000f*.045f*1.6f);v.setPivotX(v.getWidth()/2f);v.setPivotY(pivotY);v.setScaleY(1+k);v.setScaleX(1-k*.55f);
+    }
+
     /** Pressed state of iOS 26 controls. Glass grows toward the finger with a bloom under it (.interactive());
      *  filled controls shrink and dim. Both are released on a bouncy spring. */
     static <T extends View> T pressable(T v){
@@ -134,14 +141,14 @@ final class Ios {
             float w=Math.max(1,view.getWidth()),h=Math.max(1,view.getHeight()),grow=px(view.getContext(),7);
             if(action==MotionEvent.ACTION_DOWN){
                 if(glass==null)spring(view,SNAPPY).scaleX(.95f).scaleY(.95f).alpha(.78f);
-                else{glass.press(e.getX(),e.getY(),true);if(!still())spring(view,SNAPPY).scaleX(1+Math.min(.06f,grow/w)).scaleY(1+Math.min(.06f,grow/h));}
+                else{glass.press(e.getX(),e.getY(),true);if(!still()){spring(view,SNAPPY).scaleX(1+Math.min(.06f,grow/w)).scaleY(1+Math.min(.06f,grow/h));lean(view,true);}}
             }else if(action==MotionEvent.ACTION_MOVE&&glass!=null){
                 glass.follow(e.getX(),e.getY());
                 // The lens leans after the finger a little, like a drop of liquid held by surface tension.
                 // Measured from the untranslated frame, so the lean does not feed back into the next event.
                 if(!still()){view.setTranslationX(rubber(e.getX()+view.getTranslationX()-w/2,grow*3)*.35f);view.setTranslationY(rubber(e.getY()+view.getTranslationY()-h/2,grow*3)*.35f);}
             }else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
-                if(glass!=null)glass.press(e.getX(),e.getY(),false);
+                if(glass!=null){glass.press(e.getX(),e.getY(),false);lean(view,false);}
                 spring(view,BOUNCY).scaleX(1).scaleY(1).translationX(0).translationY(0).alpha(view.isEnabled()?1:.45f);
             }
             return false;
@@ -162,6 +169,19 @@ final class Ios {
             return false;
         });
         return v;
+    }
+
+    /** Surface tension between glass drops: while one is pressed, its glass neighbours in the same row lean a few dp
+     *  toward it, and spring back when it is let go. */
+    static void lean(View pressed,boolean on){
+        if(!(pressed.getParent() instanceof LinearLayout)||still())return;LinearLayout row=(LinearLayout)pressed.getParent();if(row.getOrientation()!=LinearLayout.HORIZONTAL)return;
+        int at=row.indexOfChild(pressed);float d=px(pressed.getContext(),3.5f);
+        for(int i=Math.max(0,at-1);i<=Math.min(row.getChildCount()-1,at+1);i++){
+            View v=row.getChildAt(i);if(v==pressed||!(v.getBackground() instanceof Shape)||!((Shape)v.getBackground()).glass||v.isPressed())continue;
+            float gap=Math.abs((v.getLeft()+v.getRight())/2f-(pressed.getLeft()+pressed.getRight())/2f)-(v.getWidth()+pressed.getWidth())/2f;
+            if(gap>px(pressed.getContext(),24))continue;  // only drops close enough to feel each other
+            v.animate().cancel();(on?spring(v,SNAPPY):spring(v,BOUNCY)).translationX(on?(i<at?d:-d):0).scaleX(on?1.03f:1).scaleY(on?.98f:1);
+        }
     }
 
     /** Continuous ("squircle") corners: the curve starts earlier and ends tighter than a circular arc. radius<0 is a capsule. */
@@ -675,7 +695,8 @@ final class Ios {
     static final class Segmented extends View {
         interface Listener{void selected(int index);}
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG),text=new Paint(Paint.ANTI_ALIAS_FLAG);final RectF r=new RectF();final int slop;
-        String[] items;int selected,hovered;float position,velocity,target,held,downX,lastX;long frame,lastTime;boolean settling,onThumb,dragging;Listener listener;ValueAnimator hold;
+        String[] items;int selected,hovered;float position,velocity,target,held,downX,lastX,trail;long frame,lastTime,trailFrame;boolean settling,onThumb,dragging;Listener listener;ValueAnimator hold;
+        final RectF neck=new RectF();
         Segmented(Context c,String... items){
             super(c);this.items=items;setBackground(glass(c,-1));setClickable(true);setFocusable(true);slop=ViewConfiguration.get(c).getScaledTouchSlop();
             // 13 sp: follows the system font size, capped at 1.3x so the labels stay inside the capsule.
@@ -729,11 +750,21 @@ final class Ios {
             float d=px(getContext(),1),seg=segment(),speed=Math.min(1,Math.abs(velocity)/6f),stretch=.38f*speed;
             float w=(seg-4*d)*(1+stretch)*(1+.06f*held),h=(getHeight()-4*d)*(1-.22f*speed)+3*d*held,cx=(position+.5f)*seg,cy=getHeight()/2f;
             w=Math.min(w,getWidth()-2*d);r.set(cx-w/2,cy-h/2,cx+w/2,cy+h/2);
-            paint.setStyle(Paint.Style.FILL);paint.setColor(mix(0xfff5f5f7,0x3dffffff,held));paint.setShadowLayer(3*d,0,d,mix(0x33000000,0x00000000,held));c.drawRoundRect(r,r.height()/2,r.height()/2,paint);
+            paint.setStyle(Paint.Style.FILL);paint.setColor(mix(0xfff5f5f7,0x3dffffff,held));paint.setShadowLayer(3*d,0,d,mix(0x33000000,0x00000000,held));
+            // Liquid tail: a smaller drop lags behind the thumb, joined to it by a neck that thins as they part.
+            long now=AnimationUtils.currentAnimationTimeMillis();float dt=trailFrame==0?1/60f:Math.min(.05f,(now-trailFrame)/1000f);trailFrame=now;
+            if(still())trail=position;else trail+=(position-trail)*Math.min(1,dt*7.5f);
+            float gapSeg=Math.abs(position-trail);boolean tail=gapSeg>.03f&&held<.5f;
+            if(tail){
+                float tx=(trail+.5f)*seg,tw=h*(1-.35f*Math.min(1,gapSeg)),nh=h*Math.max(.28f,.72f-.5f*Math.min(1,gapSeg));
+                neck.set(Math.min(tx,cx),cy-nh/2,Math.max(tx,cx),cy+nh/2);c.drawRoundRect(neck,nh/2,nh/2,paint);
+                neck.set(tx-tw/2,cy-tw/2,tx+tw/2,cy+tw/2);c.drawRoundRect(neck,tw/2,tw/2,paint);
+            }
+            c.drawRoundRect(r,r.height()/2,r.height()/2,paint);
             if(held>.01f){paint.clearShadowLayer();paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(d);paint.setColor(mix(0x00ffffff,0x8cffffff,held));c.drawRoundRect(r,r.height()/2,r.height()/2,paint);paint.setStyle(Paint.Style.FILL);}
             for(int i=0;i<items.length;i++){float near=Math.max(0,1-Math.abs(position-i))*(1-held);text.setColor(mix(LABEL,0xff0b0b0d,near));
                 c.drawText(items[i],seg*i+seg/2,cy-(text.descent()+text.ascent())/2,text);}
-            if(settling||dragging&&Math.abs(velocity)>.01f)postInvalidateOnAnimation();
+            if(settling||dragging&&Math.abs(velocity)>.01f||Math.abs(position-trail)>.002f)postInvalidateOnAnimation();
         }
         /** TalkBack reads the choices and the selected one; double tap moves to the next, the actions menu or a scroll gesture picks one. */
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){

@@ -104,7 +104,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         effectTitle=text(this,"",22,BOLD,LABEL);titleRow.addView(effectTitle,new LinearLayout.LayoutParams(0,-2,1));
         heart=circle(this,Glyph.HEART,tr("В избранное","Add to favorites"));titleRow.addView(heart,new LinearLayout.LayoutParams(dp(38),dp(38)));heart.setOnClickListener(v->toggleFavorite(profile().effect,v));
         dice=circle(this,Glyph.PLUS,tr("Случайный эффект","Surprise me"));dice.setImageDrawable(new Dice());LinearLayout.LayoutParams dp2=new LinearLayout.LayoutParams(dp(38),dp(38));dp2.leftMargin=dp(8);titleRow.addView(dice,dp2);dice.setOnClickListener(this::surprise);
-        TextView all=capsule(this,tr("Все эффекты","All effects"),false);LinearLayout.LayoutParams allp=new LinearLayout.LayoutParams(-2,dp(38));allp.leftMargin=dp(8);titleRow.addView(all,allp);all.setOnClickListener(v->openCatalog());
+        TextView all=capsule(this,tr("Все эффекты","All effects"),false);LinearLayout.LayoutParams allp=new LinearLayout.LayoutParams(-2,dp(38));allp.leftMargin=dp(8);titleRow.addView(all,allp);all.setOnClickListener(v->openCatalog(v));
         effectAbout=text(this,"",15,REGULAR,SECONDARY);effectAbout.setPadding(0,dp(4),0,dp(10));sheetBody.addView(effectAbout);
 
         stripScroll=new Carousel();stripScroll.setHorizontalScrollBarEnabled(false);stripScroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
@@ -257,12 +257,25 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     static void collect(View v,String tag,List<View> out){if(tag.equals(v.getTag()))out.add(v);if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++)collect(((ViewGroup)v).getChildAt(i),tag,out);}
 
     // ---------------------------------------------------------------- catalog
-    void openCatalog(){
+    void openCatalog(){openCatalog(null);}
+    float revealed=1;
+    /** Opens the catalog; from a view (the "All effects" button) it wells up out of it as a growing drop. */
+    void openCatalog(View from){
         if(catalogMotion!=null)catalogMotion.cancel();
         if(catalog==null)buildCatalog();else search.setText("");
         if(catalog.getParent()==null)root.addView(catalog,new FrameLayout.LayoutParams(-1,-1));
-        entering=true;fillCatalog();entering=false;
-        catalog.setTranslationY(root.getHeight());present();spring(catalog,SMOOTH).translationY(0).setUpdateListener(a->present());updateBack();
+        entering=true;fillCatalog();entering=false;updateBack();
+        if(from==null||still()||!catalog.isLaidOut()&&root.getHeight()==0){catalog.setTranslationY(root.getHeight());present();spring(catalog,SMOOTH).translationY(0).setUpdateListener(a->present());return;}
+        catalog.setTranslationY(0);catalog.setScaleX(1);catalog.setScaleY(1);
+        catalog.post(()->{
+            if(!catalog.isAttachedToWindow())return;
+            int[] at=new int[2],base=new int[2];from.getLocationInWindow(at);catalog.getLocationInWindow(base);
+            int cx=at[0]-base[0]+from.getWidth()/2,cy=at[1]-base[1]+from.getHeight()/2;float end=(float)Math.hypot(Math.max(cx,catalog.getWidth()-cx),Math.max(cy,catalog.getHeight()-cy));
+            android.animation.Animator grow=ViewAnimationUtils.createCircularReveal(catalog,cx,cy,from.getHeight()/2f,end);grow.setInterpolator(SMOOTH);grow.setDuration(SMOOTH.duration+120);
+            android.animation.ValueAnimator p=android.animation.ValueAnimator.ofFloat(0,1);p.setInterpolator(SMOOTH);p.setDuration(SMOOTH.duration+120);p.addUpdateListener(a->{revealed=(float)a.getAnimatedValue();present();});
+            p.addListener(new android.animation.AnimatorListenerAdapter(){@Override public void onAnimationEnd(android.animation.Animator a){revealed=1;present();}});
+            revealed=0;present();grow.start();p.start();
+        });
     }
     void closeCatalog(){closeCatalog(0);}
     /** Slides the catalog away, continuing a flick at the speed it was let go with (px/s). */
@@ -271,10 +284,10 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         catalogFling().spring(.38,.98).to(catalog.getTranslationY(),Math.max(speed,0),root.getHeight(),()->{root.removeView(catalog);present();updateBack();});
     }
     Fling catalogMotion;
-    Fling catalogFling(){if(catalogMotion==null)catalogMotion=new Fling(root,v->{catalog.setTranslationY(v);present();});catalogMotion.cancel();return catalogMotion;}
+    Fling catalogFling(){if(catalogMotion==null)catalogMotion=new Fling(root,v->{catalog.setTranslationY(v);jelly(catalog,catalogMotion.velocity,0);present();});catalogMotion.cancel();return catalogMotion;}
     /** iOS sheet presentation, driven by the catalog's position: the stage recedes to 94%, rounds its corners and dims. */
     void present(){
-        float h=Math.max(1,root.getHeight()),p=catalogOpen()?clamp(1-catalog.getTranslationY()/h,0,1):0,s=still()?1:1-.06f*p;
+        float h=Math.max(1,root.getHeight()),p=catalogOpen()?clamp(1-catalog.getTranslationY()/h,0,1)*revealed:0,s=still()?1:1-.06f*p;
         stage.setPivotX(root.getWidth()/2f);stage.setPivotY(h/2);stage.setScaleX(s);stage.setScaleY(s);curtain.set(p);
     }
     /** Swipe down on the catalog's header: follows the finger (rubber band upward), then closes or springs back. */
@@ -565,7 +578,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
      *  rubber band; let go it springs back, or past a third of its height (or flung) it tucks the interface away. */
     final class Sheet extends ScrollView {
         final int slop=ViewConfiguration.get(MainActivity.this).getScaledTouchSlop();float startX,startY,localY,lastY,speed;long lastTime;boolean pulling,armed;
-        final Fling release=new Fling(this,this::setTranslationY);
+        final Fling release=new Fling(this,y->{setTranslationY(y);jelly(this,this.release.velocity,getHeight());});
         Sheet(){super(MainActivity.this);}
         boolean shouldPull(MotionEvent e){
             float dx=e.getRawX()-startX,dy=e.getRawY()-startY;
@@ -587,7 +600,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             if(!pulling)return super.onTouchEvent(e);
             float y=e.getRawY(),dy=y-startY;
             if(action==MotionEvent.ACTION_MOVE){
-                setTranslationY(dy>0?rubber(dy,getHeight()*1.6f):rubber(dy,dp(60)));
+                setTranslationY(dy>0?rubber(dy,getHeight()*1.6f):rubber(dy,dp(60)));jelly(this,speed,getHeight());
                 float dt=Math.max(1,e.getEventTime()-lastTime)/1000f;speed=.6f*(y-lastY)/dt+.4f*speed;lastY=y;lastTime=e.getEventTime();
                 boolean past=getTranslationY()>getHeight()*.3f;if(past!=armed){armed=past;haptic(this,THRESHOLD);}
             }else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
