@@ -73,12 +73,12 @@ public final class SettingsActivity extends Activity {
         String version="";try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){}
         LinearLayout versionRow=row(this,about,tr("Версия","Version"),text(this,version,17,REGULAR,SECONDARY));
         versionRow.setOnLongClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);openDiagnostics();return true;});  // hidden shortcut, as in many iOS apps
-        LinearLayout author=row(this,about,tr("Автор — Kamradik","Author — Kamradik"),chevron());author.setClickable(true);author.setFocusable(true);
+        LinearLayout author=row(this,about,tr("Автор — Kamradik","Author — Kamradik"),chevron());author.setClickable(true);author.setFocusable(true);highlight(author);
         author.setOnClickListener(v->{startActivity(new Intent(this,AuthorActivity.class));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);});
         footer(this,list,tr("Независимая реализация по анализу Solo Tilt. Оптическая модель основана на DuoLikeAnimation, © 2026 Elijah Semyonov, MIT. Работает без интернета.","An independent implementation based on an analysis of Solo Tilt. The optical model is based on DuoLikeAnimation, © 2026 Elijah Semyonov, MIT. Works offline."));
 
         LinearLayout developer=group(this,list,tr("Для разработчика","Developer"));
-        LinearLayout diagnostics=row(this,developer,tr("Диагностика","Diagnostics"),chevron());diagnostics.setClickable(true);diagnostics.setFocusable(true);diagnostics.setOnClickListener(v->openDiagnostics());
+        LinearLayout diagnostics=row(this,developer,tr("Диагностика","Diagnostics"),chevron());diagnostics.setClickable(true);diagnostics.setFocusable(true);highlight(diagnostics);diagnostics.setOnClickListener(v->openDiagnostics());
         footer(this,list,tr("Кадры, датчик, нагрев, расход батареи по эффектам и журнал сбоев.","Frames, sensor, heat, battery use by effect and the crash log."));
         list.setHapticFeedbackEnabled(config.haptics);
     }

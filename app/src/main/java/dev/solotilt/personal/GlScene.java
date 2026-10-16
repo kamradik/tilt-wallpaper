@@ -15,8 +15,8 @@ import static android.opengl.GLES30.*;
  * A video layer is the same 2D texture, refilled from the decoder's OES texture on each new frame (blitVideo).
  */
 final class GlScene {
-    static final String[] UNIFORMS={"u_image","u_depth","u_wipeMask","u_imageSize","u_coverScale","u_crop","u_zoom","u_aspect","u_projectionX","u_projectionY","u_projectionZ","u_gap","u_blurGap","u_screenWidthMm","u_tilt","u_touch","u_params","u_toggle","u_motion","u_time","u_wake","u_alpha","u_field","u_gravity","u_charge","u_day","u_mods","u_plate","u_hasPlate"};
-    static final int IMAGE=0,DEPTH=1,WIPE=2,IMAGE_SIZE=3,COVER=4,CROP=5,ZOOM=6,ASPECT=7,PROJECTION=8,SCREEN_MM=13,TILT=14,TOUCH=15,PARAMS=16,TOGGLE=17,MOTION=18,TIME=19,WAKE=20,ALPHA=21,FIELD=22,GRAVITY=23,CHARGE=24,DAY=25,MODS=26,PLATE=27,HAS_PLATE=28;
+    static final String[] UNIFORMS={"u_image","u_depth","u_wipeMask","u_imageSize","u_coverScale","u_crop","u_zoom","u_aspect","u_projectionX","u_projectionY","u_projectionZ","u_gap","u_blurGap","u_screenWidthMm","u_tilt","u_touch","u_params","u_toggle","u_motion","u_time","u_wake","u_alpha","u_field","u_gravity","u_charge","u_day","u_mods","u_plate","u_hasPlate","u_reveal"};
+    static final int IMAGE=0,DEPTH=1,WIPE=2,IMAGE_SIZE=3,COVER=4,CROP=5,ZOOM=6,ASPECT=7,PROJECTION=8,SCREEN_MM=13,TILT=14,TOUCH=15,PARAMS=16,TOGGLE=17,MOTION=18,TIME=19,WAKE=20,ALPHA=21,FIELD=22,GRAVITY=23,CHARGE=24,DAY=25,MODS=26,PLATE=27,HAS_PLATE=28,REVEAL=29;
     static final int WIPE_W=64,WIPE_H=128;
     /** Indices into the env array draw() takes: charging 0/1, battery 0..1, time of day 0..1, screen gravity x/y, shake 0..1. */
     static final int ENV_CHARGING=0,ENV_LEVEL=1,ENV_DAY=2,ENV_GX=3,ENV_GY=4,ENV_SHAKE=5,ENV_SIZE=6;
@@ -29,6 +29,8 @@ final class GlScene {
         int layer;Effects.Effect effect=Effects.ALL[0];float a,b,toggle,cropX=.5f,cropY=.5f,scale=1.08f,alpha=1;
         /** Finishing modifiers as the shader takes them: grain, vignette, glare 0..1, tone -1..1 (main.glsl). */
         final float[] mods=new float[4];
+        /** Ripple reveal: origin x, y (0..1, y up), progress 0..1, on. Off unless RenderLoop is revealing this pass. */
+        final float[] reveal=new float[4];
         void mods(WallpaperConfig.Profile p){for(int i=0;i<3;i++)mods[i]=p.mods[i];mods[3]=(p.mods[3]-.5f)*2;}
         void noMods(){java.util.Arrays.fill(mods,0);}
         /** A second-layer pass: its "photo" is the frame composed so far, in screen space (see overlay()). */
@@ -39,7 +41,7 @@ final class GlScene {
             this.layer=layer;effect=e;float[] v=p.params(e.id);a=v[0];b=v[1];toggle=v[2];screen=true;alpha=1;mods(p);return true;
         }
         void set(int layer,WallpaperConfig.Profile p){this.layer=layer;effect=p.effect();float[] v=p.current();a=v[0];b=v[1];toggle=v[2];cropX=p.cropX;cropY=p.cropY;scale=p.scale;mods(p);}
-        void copy(Pass o){layer=o.layer;effect=o.effect;a=o.a;b=o.b;toggle=o.toggle;cropX=o.cropX;cropY=o.cropY;scale=o.scale;System.arraycopy(o.mods,0,mods,0,4);}
+        void copy(Pass o){layer=o.layer;effect=o.effect;a=o.a;b=o.b;toggle=o.toggle;cropX=o.cropX;cropY=o.cropY;scale=o.scale;System.arraycopy(o.mods,0,mods,0,4);reveal[3]=0;}
     }
 
     final Context context;final String vertex,common,main;final int blur;final float pixelsPerMm;
@@ -241,7 +243,7 @@ final class GlScene {
         glActiveTexture(GL_TEXTURE3);glBindTexture(GL_TEXTURE_2D,field);glUniform1i(u[FIELD+1],3);
         boolean plate=l.hasPlate&&l.hasDepth&&!pass.screen;glActiveTexture(GL_TEXTURE5);glBindTexture(GL_TEXTURE_2D,plate?l.plate:neutralDepth);glUniform1i(u[PLATE+1],5);glUniform1f(u[HAS_PLATE+1],plate?1:0);glActiveTexture(GL_TEXTURE0);
         glActiveTexture(GL_TEXTURE0);
-        glUniform3f(u[GRAVITY+1],env[ENV_GX],env[ENV_GY],env[ENV_SHAKE]);glUniform2f(u[CHARGE+1],env[ENV_CHARGING],env[ENV_LEVEL]);glUniform1f(u[DAY+1],env[ENV_DAY]);glUniform4f(u[MODS+1],pass.mods[0],pass.mods[1],pass.mods[2],pass.mods[3]);
+        glUniform3f(u[GRAVITY+1],env[ENV_GX],env[ENV_GY],env[ENV_SHAKE]);glUniform2f(u[CHARGE+1],env[ENV_CHARGING],env[ENV_LEVEL]);glUniform1f(u[DAY+1],env[ENV_DAY]);glUniform4f(u[MODS+1],pass.mods[0],pass.mods[1],pass.mods[2],pass.mods[3]);glUniform4fv(u[REVEAL+1],1,pass.reveal,0);
         if(pass.alpha<.999f){glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);}
         glDrawArrays(GL_TRIANGLES,0,6);glDisable(GL_BLEND);
     }

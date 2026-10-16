@@ -26,6 +26,21 @@ vec3 finish(vec3 c,vec2 uv){
     return c;
 }
 
+// Ripple reveal (RenderLoop): while u_reveal.w is 1 a new effect arrives as a disc growing from the finger
+// (u_reveal.xy, y up) over progress u_reveal.z. Its rim is a ring of water that bends the picture and catches light.
+uniform vec4 u_reveal;
+
 void main(){
-    outColor=vec4(clamp(finish(effect(v_uv,u_tilt*u_motion,u_params),v_uv),0.0,1.0),u_alpha);
+    vec2 uv=v_uv;float alpha=u_alpha,rim=0.0;
+    if(u_reveal.w>.5){
+        vec2 q=(v_uv-u_reveal.xy)*vec2(u_aspect,1.0);float d=length(q);
+        vec2 far=max(u_reveal.xy,1.0-u_reveal.xy)*vec2(u_aspect,1.0);
+        float p=u_reveal.z,radius=length(far)*1.06*p,width=.035+.05*(1.0-p);
+        rim=exp(-pow((d-radius)/width,2.0))*(1.0-p*p);
+        uv-=(d>1e-4?q/d:vec2(0.0))*vec2(1.0/u_aspect,1.0)*rim*.035;
+        alpha=1.0-smoothstep(radius-width*.22,radius+width*.12,d);
+    }
+    vec3 c=finish(effect(uv,u_tilt*u_motion,u_params),uv);
+    c=mix(c,1.0-(1.0-c)*(1.0-vec3(.9,.96,1.0)*.42),rim);
+    outColor=vec4(clamp(c,0.0,1.0),alpha);
 }

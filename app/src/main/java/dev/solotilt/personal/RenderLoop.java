@@ -117,6 +117,13 @@ final class RenderLoop {
     boolean needed(int layer){return layer==0?!(config.separateLock&&mode==SHOW_LOCK):config.separateLock&&mode!=SHOW_HOME;}
     boolean needsDepth(int layer){return needed(layer)&&profile(layer).effect().has(Effects.DEPTH);}
 
+    /** Where the next effect change starts from (0..1, y down), as the finger that picked it; NaN: crossfade. */
+    volatile float revealX=Float.NaN,revealY;float activeRevealX,activeRevealY;boolean revealing;
+    /** UI thread: the next effect change spreads out from this point of the screen as a ripple. */
+    void revealFrom(float x,float y){revealY=y;revealX=x;}
+    /** Called on the render thread with true while a depth effect waits for its map, false when it stops waiting. */
+    volatile java.util.function.Consumer<Boolean> depthWatch;boolean waitingDepth;
+
     /** Points the current pass at the active profile; a different effect or layer starts a crossfade. */
     void retarget(boolean slotChange){
         int layer=layer(slot());WallpaperConfig.Profile p=config.profile(slot());
@@ -124,7 +131,13 @@ final class RenderLoop {
         // A depth effect shows Classic until its map is ready, then crossfades in.
         boolean fallback=p.effect().has(Effects.DEPTH)&&!depthReady[layer];
         String id=fallback?"classic":p.effect;
-        if(hasCurrent&&(current.layer!=layer||!current.effect.id.equals(id))&&!config.reduceMotion){outgoing.copy(current);outgoing.alpha=1;fading=true;transitionStart=SystemClock.elapsedRealtimeNanos();transitionNanos=slotChange?380_000_000L:220_000_000L;}
+        boolean depthArrived=waitingDepth&&!fallback&&current.layer==layer;
+        if(fallback!=waitingDepth){waitingDepth=fallback;java.util.function.Consumer<Boolean> w=depthWatch;if(w!=null)w.accept(fallback);}
+        float rx=revealX;revealX=Float.NaN;
+        if(hasCurrent&&(current.layer!=layer||!current.effect.id.equals(id))&&!config.reduceMotion){outgoing.copy(current);outgoing.alpha=1;fading=true;transitionStart=SystemClock.elapsedRealtimeNanos();transitionNanos=slotChange?380_000_000L:220_000_000L;
+            // A picked effect ripples out from the finger; a depth map that just arrived opens from the middle.
+            revealing=!slotChange&&(!Float.isNaN(rx)||depthArrived);
+            if(revealing){activeRevealX=Float.isNaN(rx)?.5f:rx;activeRevealY=Float.isNaN(rx)?.45f:revealY;transitionNanos=depthArrived?820_000_000L:620_000_000L;}}
         current.set(layer,p);if(fallback){current.effect=Effects.ALL[0];float[] d=current.effect.defaults();current.a=d[0];current.b=d[1];current.toggle=d[2];}
         hasLayer=layered.setOverlay(layer,p)&&Effects.layerable(current.effect,layered.effect);
         if(hasLayer)current.noMods(); // with a second layer the finishing is applied once, on top of it
@@ -300,6 +313,9 @@ final class RenderLoop {
             float motion=config.reduceMotion?.15f:1,time=((start-startTime)*1e-9f)%3600f,wakeAge=(start-wakeTime)*1e-9f;
             scene.begin();
             if(transition<1){scene.draw(outgoing,w,h,x,y,motion,touch,time,wakeAge,env);current.alpha=transition*transition*(3-2*transition);}else current.alpha=1;
+            // Ripple: the shader cuts the new effect to a growing disc (its own alpha); .99 keeps blending on.
+            if(transition<1&&revealing){current.alpha=.99f;current.reveal[0]=activeRevealX;current.reveal[1]=1-activeRevealY;current.reveal[2]=1-(1-transition)*(1-transition)*(1-transition);current.reveal[3]=1;}
+            else{current.reveal[3]=0;if(transition>=1)revealing=false;}
             scene.draw(current,w,h,x,y,motion,touch,time,wakeAge,env);
             if(hasLayer)scene.overlay(layered,w,h,x,y,motion,touch,time,wakeAge,env);
             scene.end(w,h);

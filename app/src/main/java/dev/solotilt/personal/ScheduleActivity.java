@@ -61,7 +61,7 @@ public final class ScheduleActivity extends Activity {
         LinearLayout photo=group(this,list,tr("Фото дня","Photo of the day"));
         toggle(photo,tr("Менять фото из альбома","Rotate photos from an album"),plan.rotate,on->{plan().rotate=on;changed();if(on&&plan().album==null)pickAlbum();});
         TextView album=text(this,plan.album==null?tr("Выбрать","Choose"):albumName(plan.album),17,REGULAR,plan.album==null?BLUE:SECONDARY);album.setMaxLines(1);album.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);album.setMaxWidth(dp(170));
-        LinearLayout albumRow=row(this,photo,tr("Альбом","Album"),album);albumRow.setClickable(true);albumRow.setOnClickListener(v->pickAlbum());pressable(albumRow);
+        LinearLayout albumRow=row(this,photo,tr("Альбом","Album"),album);albumRow.setClickable(true);albumRow.setOnClickListener(v->pickAlbum());highlight(albumRow);
         Segmented when=new Segmented(this,tr("Каждый день","Every day"),tr("При разблокировке","Every unlock"));when.select(plan.perUnlock?1:0,false);when.listener=i->{plan().perUnlock=i==1;changed();};
         row(this,photo,null,when);
         footer(this,list,tr("Фото берутся по порядку из выбранной папки. Если включено и время суток, пресет задаёт эффект, а фото — из альбома.","Photos are taken in order from the chosen folder. With a time schedule too, the preset sets the effect and the album sets the photo."));
@@ -77,7 +77,7 @@ public final class ScheduleActivity extends Activity {
         LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,-2,1);np.leftMargin=dp(12);row.addView(name,np);
         ImageView chevron=new ImageView(this);chevron.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));row.addView(chevron);
         row.setClickable(true);row.setOnClickListener(v->choosePreset(w));
-        card.addView(pressable(row));
+        card.addView(highlight(row));
     }
 
     // ---------------------------------------------------------------- edits

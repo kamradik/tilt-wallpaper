@@ -1,0 +1,4 @@
+<!-- View tags of the Ios kit. -->
+<resources>
+  <item type="id" name="highlight_fade"/>
+</resources>

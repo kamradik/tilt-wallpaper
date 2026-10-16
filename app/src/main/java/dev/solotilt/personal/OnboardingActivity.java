@@ -91,7 +91,7 @@ public final class OnboardingActivity extends Activity {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG),frame=new Paint(Paint.ANTI_ALIAS_FLAG),glare=new Paint(Paint.ANTI_ALIAS_FLAG);
         final Camera camera=new Camera();final Matrix matrix=new Matrix();final RectF box=new RectF();final Path clip=new Path();
         final Bitmap[] images={ImageStore.preset(1,.5f),ImageStore.preset(0,.5f),ImageStore.preset(2,.5f)};
-        final long start=SystemClock.uptimeMillis();float position,target;int top;android.animation.ValueAnimator move;
+        final long start=SystemClock.uptimeMillis();float position,target,fadeHeight;int top;Shader fade;android.animation.ValueAnimator move;
         Demo(){super(OnboardingActivity.this);frame.setStyle(Paint.Style.STROKE);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
         void goTo(int p){if(p==target)return;target=p;move=Ios.animate(move,position,p,SMOOTH,a->{position=(float)a.getAnimatedValue();invalidate();});}
         void release(){if(move!=null)move.cancel();for(Bitmap b:images)b.recycle();}
@@ -117,7 +117,7 @@ public final class OnboardingActivity extends Activity {
                 overlayHome(c,cx-gap,cy,pw,ph,single);overlayLock(c,cx+gap,cy,pw,ph,single);
             }
             // The text sits on a soft fade so it stays readable.
-            paint.setShader(new LinearGradient(0,h*.5f,0,h,0x00000000,0xf0000000,Shader.TileMode.CLAMP));c.drawRect(0,h*.5f,w,h,paint);paint.setShader(null);
+            if(fade==null||fadeHeight!=h){fade=new LinearGradient(0,h*.5f,0,h,0x00000000,0xf0000000,Shader.TileMode.CLAMP);fadeHeight=h;}paint.setShader(fade);c.drawRect(0,h*.5f,w,h,paint);paint.setShader(null);
             if(!still())postInvalidateOnAnimation();
         }
         void phone(Canvas c,float cx,float cy,float pw,float ph,float tx,float ty,Bitmap image,float alpha,float holo,float scan,float t,float d){

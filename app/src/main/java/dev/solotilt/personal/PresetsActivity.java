@@ -85,7 +85,7 @@ public final class PresetsActivity extends Activity {
         row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));
         if(!editing){ImageView chevron=new ImageView(this);chevron.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));row.addView(chevron);}
         row.setOnClickListener(v->{if(busy)return;if(editing)rename(p);else actionsFor(p);});
-        card.addView(pressable(row));
+        card.addView(highlight(row));
     }
 
     void saveLook(){
@@ -147,7 +147,7 @@ public final class PresetsActivity extends Activity {
                 String target=i==0?Presets.HOME:i==1?Presets.LOCK:Presets.BOTH;Looks.apply(getApplicationContext(),config,look,target);
                 done(i==1?tr("Теперь на блокировке","Now on the lock screen"):i==0?tr("Теперь на главном экране","Now on the home screen"):tr("Теперь на обоих экранах","Now on both screens"));
             });});
-        card.addView(pressable(row));
+        card.addView(highlight(row));
     }
     void lookRow(LinearLayout card,Looks.Look look,int index){
         if(index>0)separate(this,card);
@@ -165,7 +165,7 @@ public final class PresetsActivity extends Activity {
                 if(i==3){showQr(look);return;}
                 String target=i==0?Presets.HOME:i==1?Presets.LOCK:Presets.BOTH;Looks.apply(getApplicationContext(),config,look,target);
                 done(i==1?tr("Теперь на блокировке","Now on the lock screen"):i==0?tr("Теперь на главном экране","Now on the home screen"):tr("Теперь на обоих экранах","Now on both screens"));});});
-        card.addView(pressable(row));
+        card.addView(highlight(row));
     }
 
     // ---------------------------------------------------------------- actions

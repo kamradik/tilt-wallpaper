@@ -67,11 +67,59 @@ final class Ios {
     static Spring ease(Spring s){return still()?CALM:s;}
     static ViewPropertyAnimator spring(View v,Spring s){Spring e=ease(s);v.animate().cancel();return v.animate().setInterpolator(e).setDuration(e.duration).setStartDelay(0);}
     /** Staggered entrance: fade and settle upward, like a sheet's content arriving. */
-    static void rise(View v,int order){v.setAlpha(0);if(!still())v.setTranslationY(px(v.getContext(),18));spring(v,SMOOTH).alpha(1).translationY(0).setStartDelay(90+55L*order);}
+    static void rise(View v,int order){v.setAlpha(0);if(!still())v.setTranslationY(px(v.getContext(),18));spring(v,SMOOTH).alpha(1).translationY(0).setStartDelay(90+55L*order).withLayer();}
     /** Grid items arriving one after another on a soft spring, slightly scaled down, as in iOS sheets. */
     static void appear(View v,int order,boolean quick){
         v.setAlpha(0);if(!still()){v.setTranslationY(px(v.getContext(),quick?8:22));v.setScaleX(.94f);v.setScaleY(.94f);}
-        spring(v,SMOOTH).alpha(1).translationY(0).scaleX(1).scaleY(1).setStartDelay((quick?0:70)+Math.min(order,12)*(quick?16L:34L));
+        spring(v,SMOOTH).alpha(1).translationY(0).scaleX(1).scaleY(1).setStartDelay((quick?0:70)+Math.min(order,12)*(quick?16L:34L)).withLayer();
+    }
+
+    // ---------------------------------------------------------------- haptics
+    /** One vocabulary of feedback for the whole app, mapped onto the richest constants the device has. TICK: a value
+     *  passes a detent; SELECT: a choice changes; THRESHOLD: a drag crosses the point where letting go acts; CONFIRM
+     *  and REJECT: an operation succeeds or fails. Views with haptics turned off (the app setting) stay silent. */
+    static final int TICK=0,SELECT=1,THRESHOLD=2,CONFIRM=3,REJECT=4;
+    static void haptic(View v,int kind){
+        if(v==null||!v.isHapticFeedbackEnabled())return;boolean u=Build.VERSION.SDK_INT>=34;
+        int c=switch(kind){
+            case TICK->u?HapticFeedbackConstants.SEGMENT_FREQUENT_TICK:HapticFeedbackConstants.CLOCK_TICK;
+            case SELECT->u?HapticFeedbackConstants.SEGMENT_TICK:HapticFeedbackConstants.CLOCK_TICK;
+            case THRESHOLD->u?HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE:HapticFeedbackConstants.CONTEXT_CLICK;
+            case CONFIRM->HapticFeedbackConstants.CONFIRM;
+            default->HapticFeedbackConstants.REJECT;
+        };
+        v.performHapticFeedback(c);
+    }
+
+    // ---------------------------------------------------------------- physics
+    /**
+     * A spring that is simulated rather than timed, as UIKit's interactive animations are: it starts from the
+     * velocity the finger left it with, can be retargeted mid-flight without a jolt, and ends when it is at rest.
+     * Driven by the host view's animation frames; apply() receives every new value. Under Reduce Motion it jumps.
+     */
+    static final class Fling {
+        interface Apply{void value(float v);}
+        final View host;final Apply apply;double omega,zeta;float value,velocity,target;long frame;boolean running;Runnable done;
+        Fling(View host,Apply apply){this.host=host;this.apply=apply;spring(.5,.86);}
+        Fling spring(double response,double damping){omega=2*Math.PI/response;zeta=damping;return this;}
+        /** Moves toward target starting at from with velocity (units per second). */
+        void to(float from,float velocity,float target,Runnable done){
+            value=from;this.velocity=velocity;this.target=target;this.done=done;
+            if(still()){value=target;this.velocity=0;apply.value(target);running=false;if(done!=null)done.run();return;}
+            frame=0;if(!running){running=true;host.postOnAnimation(step);}
+        }
+        void cancel(){running=false;host.removeCallbacks(step);}
+        /** Where a fling with this velocity would come to rest without a target: for choosing a detent. */
+        static float projected(float value,float velocity){return value+velocity*.18f;}
+        final Runnable step=new Runnable(){public void run(){
+            if(!running)return;long now=AnimationUtils.currentAnimationTimeMillis();float dt=frame==0?1/60f:Math.min(.034f,(now-frame)/1000f);frame=now;
+            double k=omega*omega,c=2*zeta*omega;float h=dt/4;
+            for(int i=0;i<4;i++){velocity+=(float)(-k*(value-target)-c*velocity)*h;value+=velocity*h;}
+            float scale=Math.max(1,Math.abs(target));
+            if(Math.abs(value-target)<.0015f*scale+.25f&&Math.abs(velocity)<.03f*scale+4){value=target;velocity=0;running=false;}
+            apply.value(value);
+            if(running)host.postOnAnimation(this);else if(done!=null)done.run();
+        }};
     }
 
     /** Pressed state of iOS 26 controls. Glass grows toward the finger with a bloom under it (.interactive());
@@ -91,6 +139,21 @@ final class Ios {
             }else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
                 if(glass!=null)glass.press(e.getX(),e.getY(),false);
                 spring(view,BOUNCY).scaleX(1).scaleY(1).translationX(0).translationY(0).alpha(view.isEnabled()?1:.45f);
+            }
+            return false;
+        });
+        return v;
+    }
+
+    /** A full-width list row's pressed state, as in UITableView: the row lights up at once under the finger and the
+     *  highlight fades out after the finger lifts (a tap shows it briefly, a scroll cancels it). */
+    static <T extends View> T highlight(T v){
+        ColorDrawable glow=new ColorDrawable(0x29ffffff);glow.setAlpha(0);v.setForeground(glow);
+        v.setOnTouchListener((view,e)->{
+            int action=e.getActionMasked();
+            if(action==MotionEvent.ACTION_DOWN){ValueAnimator old=(ValueAnimator)view.getTag(R.id.highlight_fade);if(old!=null)old.cancel();glow.setAlpha(255);}
+            else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){
+                ValueAnimator a=ValueAnimator.ofInt(glow.getAlpha(),0);a.setStartDelay(action==MotionEvent.ACTION_UP?90:0);a.setDuration(still()?0:320);a.addUpdateListener(x->glow.setAlpha((int)x.getAnimatedValue()));a.start();view.setTag(R.id.highlight_fade,a);
             }
             return false;
         });
@@ -371,7 +434,7 @@ final class Ios {
             boolean changed=pressed!=isPressed();super.setPressed(pressed);if(!changed)return;
             hold=Ios.animate(hold,stretch,pressed?1:0,SNAPPY,a->{stretch=(float)a.getAnimatedValue();invalidate();});
         }
-        @Override public boolean performClick(){setOn(!on,true);performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);if(listener!=null)listener.changed(on);return super.performClick();}
+        @Override public boolean performClick(){setOn(!on,true);haptic(this,SELECT);if(listener!=null)listener.changed(on);return super.performClick();}
         @Override protected void onDraw(Canvas c){
             float d=px(getContext(),1),left=getPaddingLeft(),top=getPaddingTop(),w=51*d,h=31*d;
             paint.clearShadowLayer();paint.setColor(mix(FILL,GREEN,Math.min(1,progress)));r.set(left,top,left+w,top+h);c.drawRoundRect(r,h/2,h/2,paint);
@@ -397,7 +460,9 @@ final class Ios {
         float xOf(int v){float t=thumb()*1.3f;return t+(getWidth()-2*t)*(v-min)/(float)(max-min);}
         void set(int next,boolean user){
             next=Math.max(min,Math.min(max,next));if(next==value)return;
-            if(user&&(next==0||next==min||next==max||(value<0)!=(next<0)))performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            if(user){int tenth=Math.max(1,(max-min)/10);
+                if(next==0||next==min||next==max||(value<0)!=(next<0))haptic(this,SELECT);
+                else if(Math.floorDiv(next-min,tenth)!=Math.floorDiv(value-min,tenth))haptic(this,TICK);}
             value=next;invalidate();setStateDescription(value+unit);if(listener!=null)listener.changed(value);
         }
         void grip(boolean on){hold=Ios.animate(hold,held,on?1:0,on?SNAPPY:BOUNCY,a->{held=(float)a.getAnimatedValue();invalidate();});}
@@ -479,7 +544,7 @@ final class Ios {
         void grip(boolean on){hold=Ios.animate(hold,held,on?1:0,on?SNAPPY:BOUNCY,a->{held=(float)a.getAnimatedValue();invalidate();});}
         void commit(int i){
             i=Math.max(0,Math.min(items.length-1,i));target=i;
-            if(i!=selected){selected=hovered=i;performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);setStateDescription(items[i]);if(listener!=null)listener.selected(i);}
+            if(i!=selected){selected=hovered=i;haptic(this,SELECT);setStateDescription(items[i]);if(listener!=null)listener.selected(i);}
             if(still()){position=i;velocity=0;invalidate();}else settle();
         }
         @Override public boolean onTouchEvent(MotionEvent e){
@@ -493,7 +558,7 @@ final class Ios {
                         // Past either end the thumb follows on a rubber band; velocity is smoothed for the stretch.
                         float p=x/seg-.5f,last=items.length-1;p=p<0?rubber(p,.6f):p>last?last+rubber(p-last,.6f):p;
                         float dt=Math.max(1,e.getEventTime()-lastTime)/1000f;velocity=.6f*(p-position)/dt+.4f*velocity;position=p;lastX=x;lastTime=e.getEventTime();settling=false;
-                        int near=Math.round(clamp(p,0,last));if(near!=hovered){hovered=near;performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);}invalidate();
+                        int near=Math.round(clamp(p,0,last));if(near!=hovered){hovered=near;haptic(this,TICK);}invalidate();
                     }
                 }
                 case MotionEvent.ACTION_UP->{grip(false);commit(dragging?Math.round(clamp(position+velocity*.08f,0,items.length-1)):(int)clamp(x/seg,0,items.length-1));dragging=false;performClick();}

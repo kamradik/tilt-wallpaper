@@ -10,7 +10,7 @@ const args=process.argv.slice(2);const out=args.shift();
 const time=parseFloat((args.find(a=>a.startsWith('--time='))||'--time=3.2').slice(7));
 const names=args.filter(a=>!a.startsWith('--'));
 const opt=(k,d)=>{const a=args.find(a=>a.startsWith('--'+k+'='));return a?a.slice(k.length+3):d;};
-const params=opt('params','.6,.5').split(',').map(Number),toggle=parseFloat(opt('toggle','1')),day=parseFloat(opt('day','.6'));
+const reveal=opt('reveal','0,0,0,0').split(',').map(Number);const params=opt('params','.6,.5').split(',').map(Number),toggle=parseFloat(opt('toggle','1')),day=parseFloat(opt('day','.6'));
 const mods=((args.find(a=>a.startsWith('--mods='))||'--mods=0,0,0,0').slice(7)).split(',').map(Number); // grain, vignette, glare, tone -1..1
 const quad=fs.readFileSync(path.join(root,'app/src/main/assets/quad.glsl'),'utf8');
 const common=fs.readFileSync(path.join(dir,'common.glsl'),'utf8'),main=fs.readFileSync(path.join(dir,'main.glsl'),'utf8');
@@ -20,7 +20,7 @@ const avatar='data:image/jpeg;base64,'+fs.readFileSync(path.join(root,'app/src/m
   const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||(process.platform==='win32'?'C:/Program Files/Google/Chrome/Application/chrome.exe':undefined),headless:true,args:['--enable-unsafe-swiftshader']});
   try{
     const page=await browser.newPage();
-    const png=await page.evaluate(async({quad,effects,avatar,time,mods,params,toggle,day})=>{
+    const png=await page.evaluate(async({quad,effects,avatar,time,mods,params,toggle,day,reveal})=>{
       const W=270,H=585,tilts=[[0,0],[.55,-.3],[-.55,.35]];
       // Landscape: sky, sun, layered hills, a lake, a tree: enough structure to judge refraction and parallax.
       const land=document.createElement('canvas');land.width=720;land.height=1560;const g=land.getContext('2d');
@@ -37,7 +37,7 @@ const avatar='data:image/jpeg;base64,'+fs.readFileSync(path.join(root,'app/src/m
       const s=Math.max(720/img.width,1560/img.height);pg.drawImage(img,(720-img.width*s)/2,(1560-img.height*s)/2,img.width*s,img.height*s);
       const photos=[photoCanvas,land];
       const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;
-      const gl=canvas.getContext('webgl2',{preserveDrawingBuffer:true});
+      const gl=canvas.getContext('webgl2',{preserveDrawingBuffer:true,premultipliedAlpha:false});
       const texFrom=(src)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);return t;};
       const flat=(w,h,v)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(w*h*4).fill(v));gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);return t;};
       const photoTex=photos.map(texFrom),wipe=flat(4,4,0),field=flat(72,160,0);
@@ -61,14 +61,14 @@ const avatar='data:image/jpeg;base64,'+fs.readFileSync(path.join(root,'app/src/m
           gl.uniform2f(u('u_imageSize'),720,1560);gl.uniform2f(u('u_coverScale'),Math.min(1,aspect/(720/1560)),Math.min(1,(720/1560)/aspect));gl.uniform2f(u('u_crop'),.5,.5);gl.uniform1f(u('u_zoom'),1.08);gl.uniform1f(u('u_aspect'),aspect);gl.uniform1f(u('u_screenWidthMm'),mm);
           gl.uniform3f(u('u_projectionX'),c,0,.5*(c-1));gl.uniform3f(u('u_projectionY'),0,1,0);gl.uniform3f(u('u_projectionZ'),-sn*mm/320,0,1-sn*mm*.5/320);gl.uniform3f(u('u_gap'),sn*mm,0,sn*mm*.5);gl.uniform3f(u('u_blurGap'),20,0,10);
           gl.uniform2f(u('u_tilt'),tx,ty);gl.uniform4f(u('u_touch'),.5,.5,99,0);gl.uniform2f(u('u_params'),params[0],params[1]);gl.uniform1f(u('u_toggle'),toggle);gl.uniform1f(u('u_motion'),1);gl.uniform1f(u('u_time'),time+ti*.37);gl.uniform2f(u('u_wake'),9,0);gl.uniform1f(u('u_alpha'),1);
-          gl.uniform3f(u('u_gravity'),-tx*.8,-.9,0);gl.uniform2f(u('u_charge'),0,.8);gl.uniform1f(u('u_day'),day);gl.uniform4f(u('u_mods'),mods[0],mods[1],mods[2],mods[3]);
+          gl.uniform3f(u('u_gravity'),-tx*.8,-.9,0);gl.uniform2f(u('u_charge'),0,.8);gl.uniform1f(u('u_day'),day);gl.uniform4f(u('u_mods'),mods[0],mods[1],mods[2],mods[3]);gl.uniform4f(u('u_reveal'),reveal[0],reveal[1],reveal[2],reveal[3]);
           gl.viewport(0,0,W,H);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.TRIANGLES,0,6);
           const x=(pi*tilts.length+ti)*(W+6);sc.drawImage(canvas,x,row*(H+24)+20);
         }));
         sc.fillStyle='#fff';sc.fillText(name,6,row*(H+24)+15);
       });
       return {png:sheet.toDataURL('image/png'),errors};
-    },{quad,effects,avatar,time,mods,params,toggle,day});
+    },{quad,effects,avatar,time,mods,params,toggle,day,reveal});
     if(png.errors.length){console.error(png.errors.join('\n'));process.exitCode=1;}
     fs.writeFileSync(out,Buffer.from(png.png.split(',')[1],'base64'));console.log('wrote',out);
   }finally{await browser.close();}
