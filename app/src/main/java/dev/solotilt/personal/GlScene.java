@@ -252,11 +252,32 @@ final class GlScene {
         glBlitFramebuffer(0,0,renderWidth,renderHeight,0,0,w,h,GL_COLOR_BUFFER_BIT,GL_LINEAR);
         glBindFramebuffer(GL_FRAMEBUFFER,0);
     }
+    // Live backdrop for the interface's glass: the finished frame scaled down into a small target and read back.
+    int captureFbo,captureTexture,captureWidth,captureHeight;java.nio.ByteBuffer capturePixels;
+    /** The frame just composed, at width x height (a few hundred pixels), as an upright ARGB bitmap. Call after end(). */
+    Bitmap capture(int width,int height){
+        if(captureFbo==0||captureWidth!=width||captureHeight!=height){
+            if(captureFbo==0){int[] f=new int[1],t=new int[1];glGenFramebuffers(1,f,0);glGenTextures(1,t,0);captureFbo=f[0];captureTexture=t[0];}
+            glBindTexture(GL_TEXTURE_2D,captureTexture);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,width,height,0,GL_RGBA,GL_UNSIGNED_BYTE,null);
+            glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+            glBindFramebuffer(GL_FRAMEBUFFER,captureFbo);glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,captureTexture,0);
+            captureWidth=width;captureHeight=height;capturePixels=java.nio.ByteBuffer.allocateDirect(width*height*4).order(java.nio.ByteOrder.nativeOrder());
+        }
+        glBindFramebuffer(GL_READ_FRAMEBUFFER,overlaid?overlayFbo:fbo[1]);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,captureFbo);
+        glBlitFramebuffer(0,0,renderWidth,renderHeight,0,0,width,height,GL_COLOR_BUFFER_BIT,GL_LINEAR);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER,captureFbo);capturePixels.rewind();glReadPixels(0,0,width,height,GL_RGBA,GL_UNSIGNED_BYTE,capturePixels);
+        glBindFramebuffer(GL_FRAMEBUFFER,0);
+        // GL rows start at the bottom and come as RGBA bytes; a Bitmap wants the top row first, as ARGB ints.
+        int[] px=new int[width*height];capturePixels.rewind();
+        for(int y=0;y<height;y++){int row=(height-1-y)*width;for(int x=0;x<width;x++){int r=capturePixels.get()&255,g=capturePixels.get()&255,b=capturePixels.get()&255;capturePixels.get();px[row+x]=0xff000000|r<<16|g<<8|b;}}
+        check("capture");return Bitmap.createBitmap(px,width,height,Bitmap.Config.ARGB_8888);
+    }
     static void check(String at){int e=glGetError();if(e!=GL_NO_ERROR)throw new IllegalStateException(at+": GL "+Integer.toHexString(e));}
     void close(){
         for(int[] p:programs.values())glDeleteProgram(p[0]);programs.clear();glDeleteProgram(blur);
         glDeleteTextures(1,new int[]{field},0);for(Layer l:layers)for(int t:new int[]{l.plate,l.mask,l.still})if(t!=0)glDeleteTextures(1,new int[]{t},0);glDeleteTextures(8,new int[]{layers[0].image,layers[1].image,layers[0].depth,layers[1].depth,scratch[0],scratch[1],neutralDepth,scratch[2]},0);
         for(int t:oes)if(t!=0)glDeleteTextures(1,new int[]{t},0);for(int t:loopFrames)if(t!=0)glDeleteTextures(1,new int[]{t},0);if(video!=0)glDeleteProgram(video);
+        if(captureFbo!=0){glDeleteFramebuffers(1,new int[]{captureFbo},0);glDeleteTextures(1,new int[]{captureTexture},0);}
         glDeleteFramebuffers(3,fbo,0);if(overlayFbo!=0){glDeleteFramebuffers(1,new int[]{overlayFbo},0);glDeleteTextures(1,new int[]{overlayTexture},0);}glDeleteBuffers(1,vbo,0);glDeleteVertexArrays(1,vao,0);
     }
 }

@@ -199,6 +199,8 @@ final class Ios {
     // The GL wallpaper cannot be read back cheaply, so glass refracts a small pre-blurred copy of the same photo,
     // placed exactly where the wallpaper shows it. One copy serves every glass surface of the hosting window.
     static Bitmap backdrop;static WeakReference<View> backdropRoot;static float zoom=1.08f,cropX=.5f,cropY=.5f;
+    /** The backdrop is a capture of the live screen (it fills the window as it is) rather than the photo to frame. */
+    static boolean backdropScreen;
     static float lightDeg=-115;static volatile float lightTarget=-115;static volatile boolean lightPending;static long lightTime;
     static final Set<Shape> GLASS=Collections.newSetFromMap(new WeakHashMap<>());
     static final float LENS=1.07f,EDGE=1.2f;
@@ -258,7 +260,11 @@ final class Ios {
      *  photo is only read, never kept or recycled. null returns glass to its plain tinted look. */
     static void backdrop(View root,Bitmap photo){
         Bitmap blurred=photo==null||photo.isRecycled()?null:blur(photo);
-        ui(()->{backdropRoot=new WeakReference<>(root);backdrop=blurred;refract();});
+        ui(()->{if(backdropScreen&&backdrop!=null)return;backdropRoot=new WeakReference<>(root);backdrop=blurred;refract();});
+    }
+    /** The live frame behind root's window (already small: no blur needed). UI thread. null returns to the photo. */
+    static void backdropLive(View root,Bitmap frame){
+        backdropRoot=new WeakReference<>(root);backdropScreen=frame!=null;if(frame!=null)backdrop=frame;refract();
     }
     /** The wallpaper's framing (zoom 1.02-2.5, crop 0..1), so the glass shows what is really behind it. UI thread. */
     static void backdropFrame(float zoomValue,float cropXValue,float cropYValue){
@@ -397,6 +403,7 @@ final class Ios {
             float x=0,y=0;View cur=host;
             while(cur!=root){x+=cur.getLeft();y+=cur.getTop();ViewParent p=cur.getParent();if(!(p instanceof View))break;cur=(View)p;x-=cur.getScrollX();y-=cur.getScrollY();}
             float W=Math.max(1,root.getWidth()),H=Math.max(1,root.getHeight()),bw=b.getWidth(),bh=b.getHeight(),cover=W/H/(bw/bh);
+            if(backdropScreen){place.setScale(W/bw,H/bh);place.postTranslate(-x,-y);return;}
             float sx=Math.min(1,cover)/zoom,sy=Math.min(1,1/cover)/zoom,ox=sx/2+(1-sx)*cropX,oy=sy/2+(1-sy)*(1-cropY);
             place.setScale(W/(bw*sx),H/(bh*sy));place.postTranslate(W*(.5f-ox/sx)-x,H*(.5f-oy/sy)-y);
         }

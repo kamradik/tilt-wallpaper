@@ -50,6 +50,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         if(intro){header.setAlpha(0);sheet.setAlpha(0);root.addView(new Moments.Intro(this,this::entrance),new FrameLayout.LayoutParams(-1,-1));}
         // The depth scan shows while a depth effect waits for the network (render thread -> UI thread).
         renderer.depthWatch=waiting->runOnUiThread(()->depthScan(waiting));
+        // Liquid glass refracts the wallpaper as it moves (Android 13+, where the glass is a real lens).
+        if(Ios.liquid()&&!still())renderer.frameWatch=frame->runOnUiThread(()->{if(!isDestroyed())Ios.backdropLive(root,frame);});
         // App shortcut "Choose photo" (ShortcutActivity) opens the picker straight away.
         if(state==null&&"pick".equals(getIntent().getStringExtra("action")))main.postDelayed(()->pick(PICK_PHOTO),400);
         if(state==null&&!OnboardingActivity.seen(this))main.postDelayed(this::openOnboarding,350);
@@ -513,7 +515,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         loadTileThumbnail();update();
     }
     @Override protected void onPause(){saveNow();rememberMedia();resumed=false;update();super.onPause();}
-    @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);io.shutdown();motion.close();renderer.close();thumbnails.close();for(Bitmap b:previews.values())b.recycle();super.onDestroy();}
+    @Override protected void onDestroy(){renderer.frameWatch=null;Ios.backdropLive(root,null);main.removeCallbacksAndMessages(null);io.shutdown();motion.close();renderer.close();thumbnails.close();for(Bitmap b:previews.values())b.recycle();super.onDestroy();}
     /** 2..6 photos taken while stepping sideways become a tilt-scrubbed video (SeriesImport). */
     void pickSeries(){
         if(!editable()||importing)return;

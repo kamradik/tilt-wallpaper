@@ -121,6 +121,9 @@ final class RenderLoop {
     volatile float revealX=Float.NaN,revealY;float activeRevealX,activeRevealY;boolean revealing;
     /** UI thread: the next effect change spreads out from this point of the screen as a ripple. */
     void revealFrom(float x,float y){revealY=y;revealX=x;}
+    /** The hub's glass refracts the live frame: about 15 times a second a drawn frame is read back small and handed
+     *  here (render thread). Null: no read-back at all (the wallpaper itself never sets it). */
+    volatile java.util.function.Consumer<Bitmap> frameWatch;long lastCapture;static final long CAPTURE_NANOS=66_000_000L;static final int CAPTURE_SIDE=140;
     /** Called on the render thread with true while a depth effect waits for its map, false when it stops waiting. */
     volatile java.util.function.Consumer<Boolean> depthWatch;boolean waitingDepth;
 
@@ -319,6 +322,10 @@ final class RenderLoop {
             scene.draw(current,w,h,x,y,motion,touch,time,wakeAge,env);
             if(hasLayer)scene.overlay(layered,w,h,x,y,motion,touch,time,wakeAge,env);
             scene.end(w,h);
+            java.util.function.Consumer<Bitmap> watch=frameWatch;
+            if(watch!=null&&start-lastCapture>CAPTURE_NANOS&&w>0&&h>0){lastCapture=start;
+                try{int cw=w<h?CAPTURE_SIDE:Math.round(CAPTURE_SIDE*w/(float)h),ch=w<h?Math.round(CAPTURE_SIDE*h/(float)w):CAPTURE_SIDE;watch.accept(scene.capture(cw,ch));}
+                catch(RuntimeException|OutOfMemoryError e){Log.w("SoloGlass","Live backdrop capture failed",e);frameWatch=null;}}
             long submitted=SystemClock.elapsedRealtimeNanos();
             if(!EGL14.eglSwapBuffers(display,eglSurface)){
                 int code=EGL14.eglGetError();if(code==EGL14.EGL_CONTEXT_LOST&&contextRetries++<2){handler.post(recover);return;}throw new IllegalStateException("EGL swap "+Integer.toHexString(code));
