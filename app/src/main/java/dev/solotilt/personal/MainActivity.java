@@ -41,7 +41,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         renderer=new RenderLoop(this,code->runOnUiThread(()->showError(code)));renderer.mode(WallpaperConfig.LOCK.equals(slot)?RenderLoop.SHOW_LOCK:RenderLoop.SHOW_HOME);
         // Sensor thread: Ios.light coalesces to ~30 Hz and posts the glass redraw to the UI thread itself.
         motion=new Motion(this,getDisplay(),(x,y,t)->{if(dragging)return;renderer.tilt(x,y,t);Ios.light(x-config.neutralX,y-config.neutralY);if(SystemClock.uptimeMillis()-labelTime>150){labelTime=SystemClock.uptimeMillis();runOnUiThread(()->angle.setText(String.format(Locale.ROOT,tr("Наклон %.0f°","Tilt %.0f°"),Math.hypot(x,y))));}});
-        renderer.sensorInfo(motion.description());thumbnails=new Thumbnails(this);
+        renderer.sensorInfo(motion.description());motion.jolt=renderer::jolt;thumbnails=new Thumbnails(this);
         build(state==null);rememberMedia();
         // App shortcut "Choose photo" (ShortcutActivity) opens the picker straight away.
         if(state==null&&"pick".equals(getIntent().getStringExtra("action")))main.postDelayed(()->pick(PICK_PHOTO),400);

@@ -70,6 +70,22 @@ public class PresetsScheduleTest {
 
     // ---------------------------------------------------------------- schedule
     static List<Schedule.Window> windows(int... minutes){List<Schedule.Window> w=new ArrayList<>();for(int m:minutes)w.add(new Schedule.Window(m,"p"+m+"aaaa"));w.sort(Comparator.comparingInt(x->x.minute));return w;}
+    @Test public void nextBoundaryIsTheNearestWindowStartOrMidnight()throws Exception{
+        WallpaperConfig c=new WallpaperConfig();LocalDateTime now=LocalDateTime.of(2026,10,16,18,59,30);
+        assertEquals(-1,Schedule.untilNext(c,now));  // nothing timed
+        c.homePlan.windows.addAll(windows(7*60,19*60));
+        assertEquals(-1,Schedule.untilNext(c,now));  // windows but the plan is off
+        c.homePlan.enabled=true;
+        assertEquals(30_000,Schedule.untilNext(c,now));
+        assertEquals(12*3600_000L-30_000,Schedule.untilNext(c,now.withHour(19).withMinute(0).withSecond(30)));  // next is 07:00 tomorrow
+        // The lock plan counts only when the lock screen has its own wallpaper.
+        c.lockPlan.enabled=true;c.lockPlan.windows.addAll(windows(18*60+59));LocalDateTime early=now.withMinute(58).withSecond(10);
+        assertEquals(110_000,Schedule.untilNext(c,early));c.separateLock=true;assertEquals(50_000,Schedule.untilNext(c,early));
+        // A daily photo rotation changes at midnight.
+        WallpaperConfig r=new WallpaperConfig();r.homePlan.rotate=true;r.homePlan.album="content://album";
+        assertEquals(30*60_000L,Schedule.untilNext(r,LocalDateTime.of(2026,10,16,23,30)));
+        r.homePlan.perUnlock=true;assertEquals(-1,Schedule.untilNext(r,LocalDateTime.of(2026,10,16,23,30)));
+    }
     @Test public void activeWindowWrapsAcrossMidnight()throws Exception{
         List<Schedule.Window> w=windows(7*60,19*60);
         assertEquals(1,Schedule.active(w,6*60+59));  // before the first window: still last night's

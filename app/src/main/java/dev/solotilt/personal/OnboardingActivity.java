@@ -18,7 +18,16 @@ public final class OnboardingActivity extends Activity {
     WallpaperConfig config;int page;Demo demo;TextView title,body;LinearLayout dots,texts;TextView next,later;float downX,downY;
     String tr(String ru,String en){return config.en()?en:ru;}
     int dp(float n){return Ios.dp(this,n);}
-    static boolean seen(Context c){return ImageStore.prefs(c).getBoolean(SEEN,false);}
+    /** Only new users see it. Someone updating from a version without onboarding has saved settings or an app that
+     *  was updated rather than freshly installed: that is decided once and remembered. */
+    static boolean seen(Context c){
+        android.content.SharedPreferences p=ImageStore.prefs(c);
+        if(p.contains(SEEN))return p.getBoolean(SEEN,false);
+        boolean existing=p.contains(WallpaperConfig.KEY);
+        try{android.content.pm.PackageInfo i=c.getPackageManager().getPackageInfo(c.getPackageName(),0);existing|=i.lastUpdateTime>i.firstInstallTime+60_000;}
+        catch(android.content.pm.PackageManager.NameNotFoundException ignored){}
+        p.edit().putBoolean(SEEN,existing).apply();return existing;
+    }
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);config=WallpaperConfig.load(this);Ios.reduceMotion(config.reduceMotion);

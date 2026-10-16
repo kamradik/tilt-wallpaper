@@ -71,6 +71,19 @@ final class Schedule {
         return started+"@"+w.minute+":"+w.preset;
     }
     static String rotationKey(Plan p,LocalDate today,long unlocks){return p.perUnlock?"u"+unlocks:"d"+today;}
+    /** Milliseconds from now until the next moment a plan changes something on a live screen: a window start, or
+     *  midnight for a daily photo rotation. -1 when nothing is timed. Pure, unit-tested. */
+    static long untilNext(WallpaperConfig config,LocalDateTime now){
+        long best=-1;LocalDateTime base=now.withSecond(0).withNano(0);
+        for(String slot:new String[]{WallpaperConfig.HOME,WallpaperConfig.LOCK}){
+            Plan plan=config.plan(slot);if(!WallpaperConfig.HOME.equals(slot)&&!config.separateLock)continue;
+            List<LocalDateTime> due=new ArrayList<>();
+            if(plan.timed())for(Window w:plan.windows){LocalDateTime t=base.withHour(w.minute/60).withMinute(w.minute%60);due.add(t.isAfter(now)?t:t.plusDays(1));}
+            if(plan.rotating()&&!plan.perUnlock)due.add(now.toLocalDate().plusDays(1).atStartOfDay());
+            for(LocalDateTime t:due){long ms=java.time.Duration.between(now,t).toMillis();if(ms>0&&(best<0||ms<best))best=ms;}
+        }
+        return best;
+    }
     static String hhmm(int minute){return String.format(Locale.ROOT,"%02d:%02d",minute/60,minute%60);}
 
     // ---------------------------------------------------------------- applying
@@ -78,13 +91,15 @@ final class Schedule {
     static volatile long lastPoke,lastUnlock;
 
     /** Engine hook (main thread): cheap throttle here, the real check on the worker. unlock=true counts an unlock. */
-    static void poke(Context context,boolean unlock){
+    static void poke(Context context,boolean unlock){poke(context,unlock,false);}
+    /** due=true: a window boundary has just passed (the engine's timer), so the throttle does not apply. */
+    static void poke(Context context,boolean unlock,boolean due){
         Context c=context.getApplicationContext();long now=android.os.SystemClock.elapsedRealtime();
         if(unlock){
             // Every engine (home and lock) receives the same broadcast; count it once.
             if(now-lastUnlock<3000)return;lastUnlock=now;
             SharedPreferences p=ImageStore.prefs(c);p.edit().putLong(UNLOCKS,p.getLong(UNLOCKS,0)+1).apply();
-        }else if(now-lastPoke<10_000)return;
+        }else if(!due&&now-lastPoke<10_000)return;
         lastPoke=now;
         WORKER.execute(()->{try{check(c);}catch(Exception|OutOfMemoryError e){Log.w("TiltSchedule","Schedule check failed",e);}});
     }

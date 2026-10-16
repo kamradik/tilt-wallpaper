@@ -71,8 +71,8 @@ public class SimulationTest {
     }
 
     @Test public void sandConservesGrainsPoursTowardGravityAndDigs(){
-        Sand s=new Sand();int grains=s.grains();
-        assertEquals(Simulation.W*Sand.FILL_ROWS,grains);
+        Sand s=new Sand();s.configure(.8f,.5f,true);int grains=s.grains();
+        assertEquals(Simulation.W*Sand.rows(.8f),grains);
         settle(s,-1,0,40);
         assertEquals(grains,s.grains());
         // The slab collapses against the left wall: the left half ends up holding far more sand than the right.
@@ -93,6 +93,41 @@ public class SimulationTest {
         assertEquals(grains,s.grains());
     }
 
+    @Test public void sandHoldsAtSmallTiltsAndPoursPastFriction(){
+        Sand s=new Sand();settle(s,0,-1,40);  // a level heap on the floor
+        int before=s.grains();boolean[] rest=s.grain.clone();
+        // About 24 degrees to the side: friction holds, nothing moves.
+        for(int i=0;i<120;i++)s.step(DT,.4f,-.2f,0,Float.NaN,Float.NaN);
+        assertArrayEquals(rest,s.grain);
+        // About 50 degrees: the heap breaks loose and pours to the right.
+        settle(s,.77f,0,40);
+        int right=0;for(int c=0;c<Simulation.W*Simulation.H;c++)if(s.grain[c]&&c%Simulation.W>=Simulation.W/2)right++;
+        assertTrue("sand should pour right, right half "+right+" of "+before,right>before*.55f);
+        assertEquals(before,s.grains());
+    }
+    @Test public void amountSliderChangesHowMuchSandThereIs(){
+        Sand s=new Sand();s.configure(.2f,.5f,true);
+        assertEquals(Simulation.W*Sand.rows(.2f),s.grains());  // the first value sets the heap outright
+        settle(s,0,-1,40);
+        s.configure(.9f,.5f,true);
+        assertTrue(s.step(DT,0,-1,0,Float.NaN,Float.NaN));  // growing the heap wakes it
+        settle(s,0,-1,40);
+        assertEquals(Simulation.W*Sand.rows(.9f),s.grains());
+        s.configure(.4f,.5f,true);settle(s,0,0,40);
+        assertEquals(Simulation.W*Sand.rows(.4f),s.grains());
+        // Added grains sit on the heap: every column is filled from the floor up without gaps.
+        for(int x=0;x<Simulation.W;x++){boolean gap=false;for(int y=0;y<Simulation.H;y++){boolean g=s.grain[y*Simulation.W+x];if(!g)gap=true;else assertFalse("floating grain at "+x+","+y,gap);}}
+    }
+    @Test public void dropsSliderChangesHowManyDropsThereAre(){
+        Droplets s=new Droplets();s.configure(1,.5f,false);
+        assertEquals(Droplets.target(1),s.count);
+        s.configure(.1f,.5f,false);
+        for(int i=0;i<200;i++)s.step(DT,0,0,0,Float.NaN,Float.NaN);
+        assertTrue("drops evaporate down to the slider, "+s.count,s.count<=Droplets.target(.1f));
+        int few=s.count;s.configure(.6f,.5f,false);settle(s,0,0,40);
+        // New drops that land on old ones merge, so the count ends a little under the target.
+        assertTrue("drops condense up to the slider, "+s.count,s.count>few*2&&s.count>=Droplets.target(.6f)*.85f);
+    }
     @Test public void heavyDropsRunDownAndLightOnesCling(){
         Droplets s=new Droplets();s.count=0;
         s.add(20,120,3);s.add(50,120,.6f);

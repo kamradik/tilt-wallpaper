@@ -47,10 +47,12 @@ final class RenderLoop {
 
     // Inputs for event and physics effects (GlScene.ENV_*), updated on the render thread except battery.
     final float[] env=new float[GlScene.ENV_SIZE];final ByteBuffer fieldBuffer=ByteBuffer.allocateDirect(Simulation.W*Simulation.H*4);
-    Simulation simulation;String simulationFor;float lastRawX,lastRawY,shake;long dayStamp;boolean simulationLive;
+    Simulation simulation;String simulationFor;float lastRawX,lastRawY,shake;volatile float chargeTarget=-1,joltPeak;long dayStamp;boolean simulationLive;
     final BroadcastReceiver battery=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
         int status=i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS,-1),level=i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1),scale=i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100);
-        env[GlScene.ENV_CHARGING]=status==android.os.BatteryManager.BATTERY_STATUS_CHARGING||status==android.os.BatteryManager.BATTERY_STATUS_FULL?1:0;
+        float plugged=status==android.os.BatteryManager.BATTERY_STATUS_CHARGING||status==android.os.BatteryManager.BATTERY_STATUS_FULL?1:0;
+        if(chargeTarget<0)env[GlScene.ENV_CHARGING]=plugged; // the first, sticky state shows at once; later changes fade
+        chargeTarget=plugged;
         env[GlScene.ENV_LEVEL]=level<0?1:level/(float)Math.max(1,scale);if(handler!=null)handler.post(RenderLoop.this::schedule);
     }};
     RenderLoop(Context c,java.util.function.Consumer<String> e){
@@ -297,18 +299,28 @@ final class RenderLoop {
         display=EGL14.EGL_NO_DISPLAY;glContext=EGL14.EGL_NO_CONTEXT;eglSurface=EGL14.EGL_NO_SURFACE;
     }
     void detach(){CountDownLatch latch=new CountDownLatch(1);handler.post(()->{try{cancelFrame();releaseGl();surface=null;}finally{latch.countDown();}});try{latch.await(250,TimeUnit.MILLISECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}}
+    /** Motion's accelerometer callback (sensor thread): how hard the phone is jolted, m/s². */
+    void jolt(double a){if(a>joltPeak)joltPeak=(float)a;}
     /** Time of day (once a second), screen-space gravity and shake from the raw sensor tilt, and the current effect's physics. */
     void updateEnvironment(long now,float dtMs){
         if(now-dayStamp>1_000_000_000L){dayStamp=now;env[GlScene.ENV_DAY]=java.time.LocalTime.now().toSecondOfDay()/86400f;}
+        // Plugging in fades the charging rim up in about 0.4 s, unplugging fades it out over about a second.
+        float target=chargeTarget,charging=env[GlScene.ENV_CHARGING];
+        if(target>=0&&charging!=target){float step=Math.max(.001f,dtMs*1e-3f)/(target>charging?.4f:1.1f);env[GlScene.ENV_CHARGING]=target>charging?Math.min(target,charging+step):Math.max(target,charging-step);}
         // Tilt is the gravity direction scaled to its angle from face-up; gravity itself points the other way on screen.
         float ax=latest.x,ay=latest.y,a=(float)Math.hypot(ax,ay),s=(float)Math.sin(Math.toRadians(Math.min(90,a))),sec=Math.max(.001f,dtMs*1e-3f);
         env[GlScene.ENV_GX]=a<1e-3f?0:-ax/a*s;env[GlScene.ENV_GY]=a<1e-3f?0:-ay/a*s;
         float rate=(float)Math.hypot(ax-lastRawX,ay-lastRawY)/sec;lastRawX=ax;lastRawY=ay;
-        shake=Math.max(shake*(float)Math.exp(-sec*4),Math.max(0,Math.min(1,(rate-60)/400)));env[GlScene.ENV_SHAKE]=shake;
+        // Shake: a jolt of the accelerometer (a hand shake is about 6..25 m/s²; walking stays under ~4) or a very fast
+        // turn of the phone. The peak since the last frame is taken, so a short jolt between frames still counts.
+        float jolt=joltPeak;joltPeak=0;
+        float kick=Math.max(Math.max(0,Math.min(1,(rate-120)/500)),Math.max(0,Math.min(1,(jolt-4.5f)/16)));
+        shake=Math.max(shake*(float)Math.exp(-sec*4),kick);env[GlScene.ENV_SHAKE]=shake;
         Effects.Effect e=current.effect;simulationLive=false;
         if(e.simulation==null){simulation=null;simulationFor=null;return;}
         if(!e.id.equals(simulationFor)){simulation=e.simulation.get();simulationFor=e.id;}
         boolean touching=touch[3]>0&&touch[2]<.12f;
+        simulation.configure(current.a,current.b,current.toggle>.5f);
         simulationLive=simulation.step(Math.min(.1f,sec),env[GlScene.ENV_GX],env[GlScene.ENV_GY],shake,touching?touch[0]:Float.NaN,touching?touch[1]:Float.NaN);
         fieldBuffer.position(0);simulation.fill(fieldBuffer);scene.updateField(fieldBuffer);
     }

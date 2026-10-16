@@ -18,6 +18,9 @@ interface Simulation {
      * @return true while anything still moves, so the renderer keeps scheduling frames
      */
     boolean step(float dt,float gx,float gy,float shake,float touchX,float touchY);
+    /** The effect's sliders and switch, passed every frame before step(); a simulation reacts when they change, so
+     *  the sliders change the physics itself (how much sand, how many drops), not just what the shader shows. */
+    default void configure(float a,float b,boolean toggle){}
     /** Writes W*H RGBA bytes (meaning of each channel is the effect's own) into rgba, starting at position 0. */
     void fill(ByteBuffer rgba);
 }

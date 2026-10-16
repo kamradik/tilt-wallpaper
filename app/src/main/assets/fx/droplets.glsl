@@ -44,7 +44,8 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     col*=1.0-.08*clear*(1.0-clear)*4.0*fog;
 
     // Find the tallest visible drop over this pixel, and the strongest shadow of a drop beside it.
-    float thr=mix(2.4,-.4,drops);
+    // Live, Droplets.java already holds as many drops as the slider asks for; the preview thins its staged ones.
+    float thr=live?-.4:mix(2.4,-.4,drops);
     float best=0.0,shade=0.0;vec2 bv=vec2(0.0);float br=1.0,bvis=0.0;
     for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){
         ivec2 q=c+ivec2(i,j);

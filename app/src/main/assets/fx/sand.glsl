@@ -1,14 +1,15 @@
 // Sand: Sand.java pours grains along real gravity on the field grid; this draws them as rounded grains lit from a
-// tilt-driven light. R is occupancy (bilinear gives the heap's outline), G the grain's height in its column (the
-// Amount slider cuts it, so a lower setting shows a lower heap), BA the field cell the grain started in, so
-// photo-coloured sand carries its own little piece of the picture as it pours.
+// tilt-driven light. R is occupancy (bilinear gives the heap's outline), G the grain's height in its column, BA the
+// field cell the grain started in, so photo-coloured sand carries its own little piece of the picture as it pours.
+// The Amount slider changes how much sand Sand.java simulates; only the preview heap below reads it here.
 
 const vec2 SD_FIELD=vec2(72.0,160.0);
 
 bool sdLive(){vec4 m=texelFetch(u_field,ivec2(71,159),0);return m.a>.99&&m.r+m.g+m.b<.01;}
 
-// Previews get an empty field: stage a heap along the bottom instead.
-float sdSurface(float x){return .3+.045*sin(x*5.0+.6)+.02*sin(x*13.0+2.0);}
+// Previews get an empty field: stage a heap along the bottom instead, as high as the Amount slider makes it.
+float sdHeap=.3;
+float sdSurface(float x){return sdHeap+.045*sin(x*5.0+.6)+.02*sin(x*13.0+2.0);}
 vec4 sdField(vec2 uv,bool live){
     if(live)return texture(u_field,uv);
     float s=sdSurface(uv.x),occ=1.0-smoothstep(s-.004,s+.004,uv.y);
@@ -20,7 +21,7 @@ vec4 sdCell(ivec2 q,bool live){
     float s=sdSurface(uv.x);
     return uv.y<s?vec4(1.0,uv.y/s,vec2(q)/255.0):vec4(0.0,1.0,0.0,0.0);
 }
-// Sand that shows: occupied and below the Amount cut.
+// Sand that shows: occupied (cut is kept above every height, so nothing is trimmed).
 float sdShown(vec2 uv,bool live,float cut){
     vec4 f=sdField(uv,live);
     return smoothstep(.3,.7,f.r)*(1.0-smoothstep(cut-.04,cut+.04,f.g));
@@ -29,7 +30,7 @@ float sdShown(vec2 uv,bool live,float cut){
 vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     float amount=params.x,grainSize=params.y;
     bool live=sdLive(),fromPhoto=u_toggle>.5;
-    float cut=mix(.08,1.04,amount);
+    float cut=1.04;sdHeap=mix(.08,.6,amount);
     vec3 L=normalize(vec3(-.4+tilt.x*.9,.65+tilt.y*.9,.7));
     vec2 g=uv*SD_FIELD;
     ivec2 c=ivec2(floor(g));
@@ -88,7 +89,7 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
             if(h.y<.08)baseCol*=vec3(.6,.52,.45);
             else if(h.y>.94)baseCol=vec3(.98,.95,.9);
         }
-        // Heap shape: light the outline (also the Amount cut) from its gradient so the surface reads as a slope.
+        // Heap shape: light the outline from its gradient so the surface reads as a slope.
         vec3 hn=normalize(vec3(-(sR-sL)*1.2,-(sU-sD)*1.2,1.0));
         float slope=.8+.3*clamp(dot(hn,L),0.0,1.0);
         float relief=fromPhoto?.45:.75;// photo sand keeps more of the picture

@@ -8,24 +8,40 @@ import java.nio.ByteBuffer;
  * off a heap (a 45 degree angle of repose), and carries the photo coordinate it started from, so photo-coloured sand
  * looks like the picture crumbling. A touch pushes grains out of a small disc, digging a hole without losing any.
  *
+ * Sand holds on the glass like real sand: a heap starts to pour only once the phone is tilted past about 38 degrees
+ * (in-plane gravity beats friction) and stops again below about 30, so small tilts leave it where it lies. The Amount
+ * slider adds grains on top of the heap or takes them off its surface, a few rows a frame.
+ *
  * Field: R occupancy (255 grain, 0 empty), G the grain's place in its column of sand from the floor up (0 at the
- * floor, 255 at the top surface; empty cells 255) which the Amount slider cuts so a lower setting shows a lower heap,
+ * floor, 255 at the top surface; empty cells 255),
  * B,A the field cell the grain started in (its piece of the photo). The top-right texel is a marker (0,0,0,255) telling a live field
  * from the empty one previews get.
  */
 final class Sand implements Simulation {
-    static final int MARKER=W*H-1,FILL_ROWS=H/2;
-    static final float FLAT=.12f,RATE=70f,STILL=.4f,DIG=5f;
+    static final int MARKER=W*H-1;
+    /** In-plane gravity (sine of the tilt from face-up) at which a resting heap starts to pour, and below which a
+     *  pouring one comes to rest: about 38 and 30 degrees. */
+    static final float START=.62f,STOP=.5f,RATE=70f,STILL=.4f,DIG=5f,AMOUNT=.6f;
     static final int[] DX={1,1,0,-1,-1,-1,0,1},DY={0,1,1,1,0,-1,-1,-1};
     final boolean[] grain=new boolean[W*H];
     final char[] origin=new char[W*H];
     final int[] stamp=new int[W*H],below=new int[W*H],above=new int[W*H];
-    int pass,seed=0x6A09E667,main=6;float budget,still,steady,lastUx,lastUy=-1,flow;
+    final int[] surface=new int[W*H];
+    int pass,seed=0x6A09E667,main=6,count,target;float budget,still,steady,lastUx,lastUy=-1,flow,amount=-1;boolean pouring;
 
-    Sand(){
-        for(int y=0;y<FILL_ROWS;y++)for(int x=0;x<W;x++){
-            int c=y*W+x;grain[c]=true;origin[c]=(char)(x<<8|y);
-        }
+    Sand(){level(rows(AMOUNT));}
+    /** Rows of a level heap for an Amount slider value: from a thin layer to most of the screen. */
+    static int rows(float amount){return Math.round(H*(.08f+.52f*Math.max(0,Math.min(1,amount))));}
+    void level(int rows){
+        java.util.Arrays.fill(grain,false);
+        for(int y=0;y<rows;y++)for(int x=0;x<W;x++){int c=y*W+x;grain[c]=true;origin[c]=(char)(x<<8|y);}
+        count=target=W*rows;
+    }
+    @Override public void configure(float a,float b,boolean toggle){
+        if(a==amount)return;
+        // The first value sets the heap outright (nothing is on screen yet); later changes grow or shrink it.
+        if(amount<0)level(rows(a));else{target=W*rows(a);still=0;}
+        amount=a;
     }
 
     float random(){seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return (seed>>>8)*(1f/16777216f);}
@@ -34,15 +50,21 @@ final class Sand implements Simulation {
         if(!(dt>0))return still<STILL;
         dt=Math.min(dt,.1f);
         if(!Float.isFinite(gx)||!Float.isFinite(gy)){gx=0;gy=0;}
-        float m=(float)Math.hypot(gx,gy),eff=Math.max(0,Math.min(1,(m-FLAT)/(1-FLAT)));
+        float m=(float)Math.hypot(gx,gy);
+        // Static friction with hysteresis: a heap at rest needs a steep tilt to break loose, a pouring one keeps going
+        // down to a shallower one. Once pouring, the speed grows with the tilt as before.
+        pouring=m>(pouring?STOP:START);
+        float eff=pouring?Math.max(.05f,Math.min(1,(m-STOP)/(1-STOP))):0;
         int moved=0;boolean touching=Float.isFinite(touchX)&&Float.isFinite(touchY);
         if(touching)moved+=dig(touchX*W,touchY*H);
+        if(count!=target)moved+=adjust();
         int n=0;
         if(eff>0&&!(still>=STILL&&steady>0&&Math.abs(gx/m-lastUx)+Math.abs(gy/m-lastUy)<=.06f)){
             float angle=(float)Math.atan2(gy,gx),sector=angle/(float)(Math.PI/4);if(sector<0)sector+=8;
             int d0=(int)Math.floor(sector)%8;float frac=sector-(float)Math.floor(sector);
             main=frac<.5f?d0:(d0+1)%8;
             budget+=RATE*(.35f+.65f*eff)*dt;n=Math.min(3,(int)budget);budget-=n;if(budget>1)budget=1;
+            if(n==0&&still>=STILL)n=1;  // waking from rest: look at once, or a slow first frame would read as rest
             float ux=gx/m,uy=gy/m;
             for(int p=0;p<n;p++)moved+=pass(d0,frac,ux,uy);
         }
@@ -51,7 +73,7 @@ final class Sand implements Simulation {
         // Once gravity has been steady for a while, a trickle of grains creeping along a slope counts as rest, and
         // after 12 s of steady gravity the heap freezes outright until the phone turns or is touched (battery).
         if(n>0)flow+=(moved/(float)n-flow)*.05f;
-        boolean trickle=steady>4&&flow<5||steady>12;
+        boolean trickle=(steady>4&&flow<5||steady>12)&&count==target;
         if(moved>0&&!trickle)still=0;else if(n>0||eff==0)still+=dt;
         if(still>=STILL&&!touching)return false;
         return still<STILL;
@@ -86,6 +108,26 @@ final class Sand implements Simulation {
             }
         }
         return moved;
+    }
+    /** Moves the grain count toward the Amount target: adds grains on top of the heap (in the cell above a surface
+     *  grain, "above" meaning against gravity) or lifts surface grains off, at most one per surface cell a frame. */
+    int adjust(){
+        int ux=-DX[main],uy=-DY[main],n=0;
+        for(int y=0;y<H;y++)for(int x=0;x<W;x++){
+            int c=y*W+x;if(!grain[c]||c==MARKER)continue;
+            int nx=x+ux,ny=y+uy;boolean open=nx<0||nx>=W||ny<0||ny>=H?count>target:!grain[ny*W+nx];
+            if(open)surface[n++]=c;
+        }
+        if(n==0&&count<target){for(int c=0;c<W&&count<target;c++)if(!grain[c]){grain[c]=true;origin[c]=(char)(c<<8);count++;}return 1;}
+        int changed=0;
+        for(int k=n-1;k>=0&&count!=target;k--){
+            int pick=(int)(random()*(k+1));int c=surface[pick];surface[pick]=surface[k];
+            if(count>target){grain[c]=false;count--;changed++;continue;}
+            int x=c%W+ux,y=c/W+uy;if(x<0||x>=W||y<0||y>=H)continue;
+            int to=y*W+x;if(grain[to]||to==MARKER)continue;
+            grain[to]=true;origin[to]=(char)(x<<8|y);count++;changed++;
+        }
+        return changed;
     }
     /** A third of the grains (fixed by where they came from) are rough. */
     static boolean rough(char o){return (o*0x9E3779B1>>>28)<5;}

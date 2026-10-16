@@ -17,6 +17,14 @@ public final class TiltWallpaper extends WallpaperService {
         final Handler main=new Handler(Looper.getMainLooper());
         // Unlock without a broadcast (face unlock straight to home) is caught by a light poll that runs only while locked and visible.
         final Runnable poll=new Runnable(){public void run(){checkLock();if(visible&&locked)main.postDelayed(this,250);}};
+        // While visible, a timer fires at the next schedule boundary so a new window shows at its exact minute,
+        // not only at the next unlock. Hidden engines need no timer: becoming visible pokes the schedule anyway.
+        final Runnable boundary=()->{if(visible&&!isPreview())Schedule.poke(TiltWallpaper.this,false,true);armSchedule();};
+        void armSchedule(){
+            main.removeCallbacks(boundary);if(!visible||isPreview())return;
+            long ms=Schedule.untilNext(WallpaperConfig.load(TiltWallpaper.this),java.time.LocalDateTime.now());
+            if(ms>=0)main.postDelayed(boundary,ms+1500);
+        }
         final BroadcastReceiver screen=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
             if(Intent.ACTION_USER_PRESENT.equals(i.getAction())){setLocked(false);if(!isPreview())Schedule.poke(TiltWallpaper.this,true);}
             else if(Intent.ACTION_SCREEN_OFF.equals(i.getAction()))main.postDelayed(TiltEngine.this::checkLock,400);
@@ -26,7 +34,7 @@ public final class TiltWallpaper extends WallpaperService {
         public void onCreate(SurfaceHolder holder){
             super.onCreate(holder);
             renderer=new RenderLoop(TiltWallpaper.this,null);keyguard=getSystemService(KeyguardManager.class);
-            motion=new Motion(TiltWallpaper.this,getSystemService(DisplayManager.class).getDisplay(0),renderer::tilt);renderer.sensorInfo(motion.description());
+            motion=new Motion(TiltWallpaper.this,getSystemService(DisplayManager.class).getDisplay(0),renderer::tilt);renderer.sensorInfo(motion.description());motion.jolt=renderer::jolt;
             ImageStore.prefs(TiltWallpaper.this).registerOnSharedPreferenceChangeListener(this);
             IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_USER_PRESENT);filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_SCREEN_OFF);
             if(Build.VERSION.SDK_INT>=33)registerReceiver(screen,filter,Context.RECEIVER_EXPORTED);else registerReceiver(screen,filter);
@@ -51,7 +59,7 @@ public final class TiltWallpaper extends WallpaperService {
         void update(){renderer.visible(visible&&ready);if(visible&&ready)motion.start();else motion.stop();}
         /** Becoming visible also pokes the schedule: it checks off the main thread and, if a new window or day began,
          *  writes config/media, which the listeners below turn into a reload. No service or alarm is involved. */
-        public void onVisibilityChanged(boolean v){visible=v;if(v){checkLock();if(!isPreview())Schedule.poke(TiltWallpaper.this,false);}else main.removeCallbacks(poll);update();}
+        public void onVisibilityChanged(boolean v){visible=v;if(v){checkLock();if(!isPreview())Schedule.poke(TiltWallpaper.this,false);}else main.removeCallbacks(poll);armSchedule();update();}
         @Override public Bundle onCommand(String action,int x,int y,int z,Bundle extras,boolean resultExpected){
             // Hidden platform commands: sent as the unlock animation starts (before ACTION_USER_PRESENT) and on wake; switching here lets the crossfade ride the animation.
             if("android.wallpaper.keyguardgoingaway".equals(action))setLocked(false);
@@ -62,7 +70,7 @@ public final class TiltWallpaper extends WallpaperService {
         public void onSurfaceDestroyed(SurfaceHolder holder){ready=false;update();renderer.detach();super.onSurfaceDestroyed(holder);}
         public void onSharedPreferenceChanged(SharedPreferences p,String key){
             if(ImageStore.isRevisionKey(key))renderer.reload();
-            else if(WallpaperConfig.KEY.equals(key))renderer.settings(WallpaperConfig.load(TiltWallpaper.this));
+            else if(WallpaperConfig.KEY.equals(key)){renderer.settings(WallpaperConfig.load(TiltWallpaper.this));armSchedule();}
         }
         @Override public void onTouchEvent(MotionEvent e){
             int a=e.getActionMasked();if(a!=MotionEvent.ACTION_DOWN&&a!=MotionEvent.ACTION_MOVE)return;

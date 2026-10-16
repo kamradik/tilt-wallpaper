@@ -7,6 +7,7 @@ import java.util.Arrays;
  * Droplets: rain drops cling to fogged glass until they are heavy enough for the current tilt, then run down along
  * real gravity on a wandering path, swallow the drops they touch, shed tiny beads and wipe a clear trail that fogs
  * over again. A few new drops condense while anything is running; once every drop holds still the simulation sleeps.
+ * The Drops slider sets how many drops the glass holds: moving it condenses new ones or lets small ones evaporate.
  *
  * Field: every cell within a drop's radius plus one stores the drop that stands tallest there, so the shader can draw
  * exact round lenses from its 3x3 neighbourhood: R,G the drop centre relative to the cell centre (128 + 16 per cell),
@@ -14,15 +15,25 @@ import java.util.Arrays;
  * The top-right texel is a marker (0,0,0,255) telling a live field from the empty one previews get.
  */
 final class Droplets implements Simulation {
-    static final int MAX=150,START=80,MARKER=W*H-1;
+    static final int MAX=220,MARKER=W*H-1;static final float DROPS=.65f;
     static final float FLAT=.15f,SLIDE=1.7f,MAX_R=6f,STILL=.5f,FOG_BACK=14f;
     final float[] x=new float[MAX],y=new float[MAX],r=new float[MAX],vx=new float[MAX],vy=new float[MAX],travel=new float[MAX],phase=new float[MAX];
     final boolean[] sliding=new boolean[MAX];
     final float[] clear=new float[W*H],height=new float[W*H];
     final int[] owner=new int[W*H];
-    int count,seed=0x3C6EF372;float still,spawn;
+    int count,seed=0x3C6EF372,target,change;float still,spawn,drops=-1;
 
-    Droplets(){for(int i=0;i<START;i++)add(.5f+random()*(W-1),.5f+random()*(H-1),.35f+2.5f*(float)Math.pow(random(),2.6));}
+    Droplets(){scatter(target(DROPS));}
+    /** Drops on the glass for a Drops slider value. */
+    static int target(float drops){return Math.round(12+148*Math.max(0,Math.min(1,drops)));}
+    void scatter(int n){count=0;target=n;for(int i=0;i<n;i++)add(.5f+random()*(W-1),.5f+random()*(H-1),randomRadius());}
+    float randomRadius(){return .35f+2.5f*(float)Math.pow(random(),2.6);}
+    @Override public void configure(float a,float b,boolean toggle){
+        if(a==drops)return;
+        // The first value scatters the glass outright; later changes condense or evaporate drops a few per frame.
+        if(drops<0)scatter(target(a));else{int t=target(a);change=t-count;target=t;still=0;}
+        drops=a;
+    }
 
     float random(){seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return (seed>>>8)*(1f/16777216f);}
     /** Adds a resting drop (cell units); ignored when full. */
@@ -75,12 +86,19 @@ final class Droplets implements Simulation {
             sliding[i]|=sliding[j];travel[i]=Math.max(travel[i],travel[j]);r[i]=Math.min(MAX_R,(float)Math.sqrt(a));
             remove(j);j=i;moving=true;
         }
+        // After the slider moved: condense new drops, or let the smallest resting ones evaporate. Only a slider change
+        // does this, so merging (which lowers the count) never keeps the simulation awake.
+        for(int k=0;k<3&&change!=0;k++){
+            if(change>0){add(.5f+random()*(W-1),.5f+random()*(H-1),randomRadius());change--;}
+            else{int small=-1;for(int i=0;i<count;i++)if(!sliding[i]&&(small<0||r[i]<r[small]))small=i;if(small<0){change=0;break;}remove(small);change++;}
+            moving=true;
+        }
         for(int i=count-1;i>=0;i--)if(x[i]<-r[i]-1||x[i]>W+r[i]+1||y[i]<-r[i]-1||y[i]>H+r[i]+1){remove(i);moving=true;}
         if(moving){
             // The fog creeps back over trails, and fresh drops condense while the glass is alive.
             float k=(float)Math.exp(-dt/FOG_BACK);for(int c=0;c<W*H;c++)clear[c]*=k;
             spawn+=dt;
-            if(spawn>.4f){spawn=0;if(count<START+20)add(.5f+random()*(W-1),.5f+random()*(H-1),.4f+1.2f*(float)Math.pow(random(),2));}
+            if(spawn>.4f){spawn=0;if(count<target+20)add(.5f+random()*(W-1),.5f+random()*(H-1),.4f+1.2f*(float)Math.pow(random(),2));}
         }
         still=moving?0:still+dt;
         return still<STILL;
