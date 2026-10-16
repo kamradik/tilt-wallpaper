@@ -23,4 +23,18 @@ public class LooksTest {
         assertArrayEquals(l.top,c.home.params(l.overlay),0);
         c.home.params(l.effect)[0]=0;assertNotEquals(0,l.base[0],0);  // the look's own values are not shared
     }
+    @Test public void customLooksKeepTheConstructorAndRoundTrip()throws Exception{
+        WallpaperConfig c=new WallpaperConfig();c.home.effect="glass";c.home.overlay="film";c.home.mods[0]=.4f;c.home.mods[3]=.8f;c.home.params("glass")[0]=.33f;
+        Looks.Look mine=Looks.Look.custom(WallpaperConfig.newId(),"Мой",c.home);c.looks.add(mine);
+        WallpaperConfig back=WallpaperConfig.parse(c.json());
+        assertEquals(1,back.looks.size());Looks.Look l=back.looks.get(0);
+        assertEquals("glass",l.effect);assertEquals("film",l.overlay);assertEquals(.4f,l.mods[0],1e-6);assertEquals(.8f,l.mods[3],1e-6);assertEquals(.33f,l.base[0],1e-6);
+        WallpaperConfig.Profile p=new WallpaperConfig.Profile();Looks.put(p,l);
+        assertEquals(.4f,p.mods[0],1e-6);assertEquals("film",p.overlayEffect().id);
+        // Built-in looks reset the finishing to neutral.
+        Looks.put(p,Looks.ALL[1]);assertFalse(p.hasMods());
+        // Modifiers persist with the profile, and neutral ones are not written.
+        assertTrue(WallpaperConfig.parse(c.json()).home.hasMods());
+        assertFalse(new WallpaperConfig().json().contains("mods"));
+    }
 }

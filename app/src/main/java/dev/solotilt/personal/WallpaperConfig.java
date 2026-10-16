@@ -21,7 +21,9 @@ final class WallpaperConfig {
     final Set<String> favorites=new LinkedHashSet<>();final LinkedList<String> recents=new LinkedList<>();
     final Profile home=new Profile(),lock=new Profile();
     /** v4: saved looks (newest first) and one time-of-day / photo-of-the-day plan per screen. */
-    final List<Preset> presets=new ArrayList<>();final Schedule.Plan homePlan=new Schedule.Plan(),lockPlan=new Schedule.Plan();
+    final List<Preset> presets=new ArrayList<>();
+    /** The user's own looks (Looks.Look.custom), newest first. */
+    final List<Looks.Look> looks=new ArrayList<>();static final int MAX_LOOKS=30;final Schedule.Plan homePlan=new Schedule.Plan(),lockPlan=new Schedule.Plan();
 
     /** A saved look: a profile snapshot plus a reference to the preset's own media copy (see Presets). */
     static final class Preset {
@@ -81,6 +83,9 @@ final class WallpaperConfig {
         String effect="classic";float cropX=.5f,cropY=.5f,scale=1.08f;
         /** Second layer drawn over the effect (Effects.LAYER), or null. Its sliders live in params like any effect's. */
         String overlay;
+        /** Effect constructor modifiers: grain, vignette, glare 0..1 and tone 0..1 (0.5 neutral). */
+        final float[] mods={0,0,0,.5f};
+        boolean hasMods(){return mods[0]>0||mods[1]>0||mods[2]>0||Math.abs(mods[3]-.5f)>.001f;}
         final Map<String,float[]> params=new HashMap<>();
         Effects.Effect effect(){return Effects.get(effect);}
         /** [a, b, switch] for an effect, created from its defaults on first use. */
@@ -90,7 +95,7 @@ final class WallpaperConfig {
         /** The second layer when it is valid over the current effect, else null. */
         Effects.Effect overlayEffect(){if(overlay==null)return null;Effects.Effect t=Effects.find(overlay);return t!=null&&Effects.layerable(effect(),t)?t:null;}
         void reset(String id){params.put(id,Effects.get(id).defaults());}
-        void copyFrom(Profile p){effect=p.effect;overlay=p.overlay;cropX=p.cropX;cropY=p.cropY;scale=p.scale;params.clear();for(Map.Entry<String,float[]> e:p.params.entrySet())params.put(e.getKey(),e.getValue().clone());}
+        void copyFrom(Profile p){effect=p.effect;overlay=p.overlay;System.arraycopy(p.mods,0,mods,0,4);cropX=p.cropX;cropY=p.cropY;scale=p.scale;params.clear();for(Map.Entry<String,float[]> e:p.params.entrySet())params.put(e.getKey(),e.getValue().clone());}
     }
 
     Profile profile(String slot){return LOCK.equals(slot)&&separateLock?lock:home;}
@@ -122,6 +127,8 @@ final class WallpaperConfig {
             if(version>=4){
                 JSONArray list=o.optJSONArray("presets");Set<String> ids=new HashSet<>();
                 if(list!=null)for(int i=0;i<list.length()&&c.presets.size()<MAX_PRESETS;i++){Preset p=Preset.parse(list.optJSONObject(i));if(p!=null&&ids.add(p.id))c.presets.add(p);}
+                JSONArray looks=o.optJSONArray("looks");Set<String> lookIds=new HashSet<>();
+                if(looks!=null)for(int i=0;i<looks.length()&&c.looks.size()<MAX_LOOKS;i++){Looks.Look l=Looks.Look.parse(looks.optJSONObject(i));if(l!=null&&lookIds.add(l.id))c.looks.add(l);}
                 JSONObject schedule=o.optJSONObject("schedule");
                 if(schedule!=null){Schedule.Plan.read(schedule.optJSONObject(HOME),c.homePlan);Schedule.Plan.read(schedule.optJSONObject(LOCK),c.lockPlan);}
                 c.prunePlans();
@@ -136,6 +143,8 @@ final class WallpaperConfig {
         JSONObject params=o.optJSONObject("params");
         if(params!=null)for(Iterator<String> it=params.keys();it.hasNext();){String id=it.next();readParams(p,id,params.optJSONArray(id));}
         Effects.Effect top=Effects.find(o.optString("overlay",""));p.overlay=top!=null&&top.has(Effects.LAYER)?top.id:null;
+        JSONArray mods=o.optJSONArray("mods");
+        if(mods!=null)for(int i=0;i<4;i++)p.mods[i]=safe(mods.optDouble(i,i==3?.5:0),i==3?.5f:0,0,1);
     }
     static void readFlat(JSONObject o,String prefix,Profile p){
         String effectKey=prefix.isEmpty()?"effectId":"lockEffectId",cap=prefix.isEmpty()?"":"lock";
@@ -158,16 +167,19 @@ final class WallpaperConfig {
         JSONObject params=new JSONObject();
         for(Map.Entry<String,float[]> e:p.params.entrySet())params.put(e.getKey(),new JSONArray().put(e.getValue()[0]).put(e.getValue()[1]).put(e.getValue()[2]));
         JSONObject o=new JSONObject().put("effect",p.effect).put("cropX",p.cropX).put("cropY",p.cropY).put("scale",p.scale).put("params",params);
-        if(p.overlay!=null)o.put("overlay",p.overlay);return o;
+        if(p.overlay!=null)o.put("overlay",p.overlay);
+        if(p.hasMods())o.put("mods",new JSONArray().put(p.mods[0]).put(p.mods[1]).put(p.mods[2]).put(p.mods[3]));
+        return o;
     }
     String json(){try{
         JSONArray favs=new JSONArray();for(String f:favorites)favs.put(f);JSONArray recent=new JSONArray();for(String r:recents)recent.put(r);
         return new JSONObject().put("version",VERSION).put("qualityMode",quality).put("fps",fps).put("sensorSensitivity",sensitivity).put("motionSmoothing",smoothing)
             .put("neutralX",neutralX).put("neutralY",neutralY).put("reduceMotion",reduceMotion).put("touch",touch).put("haptics",haptics).put("language",language)
             .put("separateLock",separateLock).put("favorites",favs).put("recents",recent).put(HOME,writeProfile(home)).put(LOCK,writeProfile(lock))
-            .put("presets",presetsJson()).put("schedule",new JSONObject().put(HOME,homePlan.json()).put(LOCK,lockPlan.json())).toString();
+            .put("presets",presetsJson()).put("looks",looksJson()).put("schedule",new JSONObject().put(HOME,homePlan.json()).put(LOCK,lockPlan.json())).toString();
     }catch(JSONException e){throw new IllegalStateException(e);}}
     JSONArray presetsJson()throws JSONException{JSONArray a=new JSONArray();for(Preset p:presets)a.put(p.json());return a;}
     void save(Context c){ImageStore.prefs(c).edit().putString(KEY,json()).apply();ParallaxWidget.refresh(c);}
     WallpaperConfig copy(){return parse(json());}
+    JSONArray looksJson()throws JSONException{JSONArray a=new JSONArray();for(Looks.Look l:looks)a.put(l.json());return a;}
 }

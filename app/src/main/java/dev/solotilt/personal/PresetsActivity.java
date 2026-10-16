@@ -54,6 +54,10 @@ public final class PresetsActivity extends Activity {
         link(actions,tr("Сохранить текущий экран","Save the current screen"),this::saveCurrent);
         link(actions,tr("Импорт файла пресета","Import a preset file"),this::pickImport);
         footer(this,list,tr("Пресет запоминает эффект, все его настройки, кадр и копию фото. Видео до 50 МБ сохраняется целиком, длиннее — только первый кадр.","A preset keeps the effect, all its settings, the framing and a copy of the photo. Videos up to 50 MB are kept whole; larger ones keep only their first frame."));
+        LinearLayout mine=group(this,list,tr("Мои образы","My looks"));
+        link(mine,tr("Сохранить текущий эффект как образ","Save the current effect as a look"),this::saveLook);
+        for(Looks.Look l:config.looks)myLookRow(mine,l);
+        footer(this,list,tr("Свой образ — это эффект с настройками, второй слой и обработка. Фото в него не входит.","Your look is the effect with its settings, the second layer and the finishing. The photo is not part of it."));
         LinearLayout looks=group(this,list,tr("Готовые образы","Ready looks"));
         for(int i=0;i<Looks.ALL.length;i++)lookRow(looks,Looks.ALL[i],i);
         footer(this,list,tr("Образ меняет эффект, второй слой и их настройки. Твоё фото или видео остаётся.","A look changes the effect, its second layer and their settings. Your photo or video stays."));
@@ -83,6 +87,29 @@ public final class PresetsActivity extends Activity {
         card.addView(pressable(row));
     }
 
+    void saveLook(){
+        if(config.looks.size()>=WallpaperConfig.MAX_LOOKS){alert(this,tr("Слишком много образов","Too many looks"),tr("Удали ненужные, чтобы сохранить новый.","Delete some to save a new one."),"OK");return;}
+        String slot=getIntent().getStringExtra(EXTRA_SLOT);WallpaperConfig.Profile p=config.profile(WallpaperConfig.LOCK.equals(slot)?WallpaperConfig.LOCK:WallpaperConfig.HOME);
+        Effects.Effect top=p.overlayEffect();String suggested=p.effect().name(config.en())+(top==null?"":" + "+top.name(config.en()));
+        prompt(this,tr("Новый образ","New look"),tr("Название для эффекта с его настройками.","A name for the effect with its settings."),suggested,tr("Сохранить","Save"),tr("Отмена","Cancel"),name->{
+            config.looks.add(0,Looks.Look.custom(WallpaperConfig.newId(),WallpaperConfig.cleanName(name),p));config.save(this);build();done(tr("Образ сохранён","Look saved"));});
+    }
+    void myLookRow(LinearLayout card,Looks.Look look){
+        separate(this,card);
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setMinimumHeight(dp(56));row.setPadding(dp(16),dp(8),dp(14),dp(8));row.setClickable(true);row.setFocusable(true);
+        LinearLayout texts=new LinearLayout(this);texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(text(this,look.name(config.en()),17,REGULAR,LABEL));texts.addView(text(this,look.recipe(config.en()),13,REGULAR,SECONDARY));
+        row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));
+        ImageView chevron=new ImageView(this);chevron.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));row.addView(chevron);
+        row.setOnClickListener(v->{if(busy)return;
+            String[] items={tr("Применить к главному экрану","Apply to Home Screen"),tr("Применить к блокировке","Apply to Lock Screen"),tr("Применить к обоим","Apply to both"),tr("Удалить","Delete")};
+            actionSheet(this,look.name(config.en()),items,3,tr("Отмена","Cancel"),i->{
+                if(i==3){config.looks.remove(look);config.save(this);build();return;}
+                String target=i==0?Presets.HOME:i==1?Presets.LOCK:Presets.BOTH;Looks.apply(getApplicationContext(),config,look,target);
+                done(i==1?tr("Теперь на блокировке","Now on the lock screen"):i==0?tr("Теперь на главном экране","Now on the home screen"):tr("Теперь на обоих экранах","Now on both screens"));
+            });});
+        card.addView(pressable(row));
+    }
     void lookRow(LinearLayout card,Looks.Look look,int index){
         if(index>0)separate(this,card);
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setMinimumHeight(dp(64));row.setPadding(dp(12),dp(8),dp(14),dp(8));row.setClickable(true);row.setFocusable(true);

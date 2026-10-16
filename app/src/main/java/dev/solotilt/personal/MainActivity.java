@@ -170,6 +170,13 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
                 unitSlider(this,layer,en?top.bEn:top.bRu,lv[1],x->{profile().params(top.id)[1]=x/100f;persist();});
                 if(top.hasSwitch()){Toggle t=new Toggle(this);t.setOn(lv[2]>.5f,false);t.setContentDescription(en?top.switchEn:top.switchRu);t.listener=on->{profile().params(top.id)[2]=on?1:0;persist();};row(this,layer,en?top.switchEn:top.switchRu,t);}}
             footer(this,params,tr("Снег, капли, плёнка, свет или время суток поверх основного эффекта.","Snow, drops, film, light or time of day over the main effect."));
+            // Effect constructor: finishing modifiers on top of whatever the effect draws.
+            LinearLayout finish=group(this,params,tr("Обработка","Finishing"));float[] m=p.mods;
+            String[][] names={{"Зерно","Grain"},{"Виньетка","Vignette"},{"Блик","Light leak"},{"Тон: холоднее ↔ теплее","Tone: cooler ↔ warmer"}};
+            for(int i=0;i<4;i++){final int k=i;unitSlider(this,finish,en?names[i][1]:names[i][0],m[i],x->{profile().mods[k]=x/100f;persist();});}
+            if(p.hasMods()){TextView clear=text(this,tr("Сбросить обработку","Reset finishing"),17,REGULAR,0xffff453a);clear.setClickable(true);
+                clear.setOnClickListener(x->{float[] r=profile().mods;r[0]=r[1]=r[2]=0;r[3]=.5f;persist();refresh();});row(this,finish,null,pressable(clear));}
+            footer(this,params,tr("Обработка ложится поверх эффекта и второго слоя. Сохрани сочетание как свой образ в «Пресетах».","Finishing goes over the effect and its second layer. Save the combination as your own look in Presets."));
         }
         lockCard.removeAllViews();
         if(WallpaperConfig.LOCK.equals(slot)){

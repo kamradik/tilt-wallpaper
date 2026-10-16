@@ -122,6 +122,7 @@ final class RenderLoop {
         if(hasCurrent&&(current.layer!=layer||!current.effect.id.equals(id))&&!config.reduceMotion){outgoing.copy(current);outgoing.alpha=1;fading=true;transitionStart=SystemClock.elapsedRealtimeNanos();transitionNanos=slotChange?380_000_000L:220_000_000L;}
         current.set(layer,p);if(fallback){current.effect=Effects.ALL[0];float[] d=current.effect.defaults();current.a=d[0];current.b=d[1];current.toggle=d[2];}
         hasLayer=layered.setOverlay(layer,p)&&Effects.layerable(current.effect,layered.effect);
+        if(hasLayer)current.noMods(); // with a second layer the finishing is applied once, on top of it
         hasCurrent=true;
     }
     void prepare(){
