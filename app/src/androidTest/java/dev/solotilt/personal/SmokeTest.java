@@ -67,7 +67,7 @@ public final class SmokeTest {
         back();
 
         click(scrollTo(any("Диагностика","Diagnostics")));
-        find(any("Журнал сбоев","Crash log"));pause(1200);shot("06_diagnostics");
+        scrollTo(any("Журнал сбоев","Crash log"));pause(1200);shot("06_diagnostics");
         back();
         check(find(any("Движение","Motion"))!=null,"back in settings");
     }
