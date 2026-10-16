@@ -62,7 +62,7 @@
 | Графика | OpenGL ES 3.0 |
 | Датчики | Game rotation vector → rotation vector → gravity → акселерометр |
 | Пакет | `dev.solotilt.personal` |
-| Версия | 2.2-beta1 / versionCode 9 |
+| Версия | 2.3-beta1 / versionCode 10 |
 | Target / Compile SDK | 36 |
 | Разрешения | Только `SET_WALLPAPER` |
 | Интернет | Не требуется, разрешение INTERNET отсутствует |
