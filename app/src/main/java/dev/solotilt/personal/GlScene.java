@@ -23,7 +23,7 @@ final class GlScene {
     int field;
 
     /** One photo with its blur pyramid and optional depth map. */
-    static final class Layer { int image,depth,plate,width,height,levels,nextLevel;boolean hasDepth,hasPlate; }
+    static final class Layer { int image,depth,plate,mask,still,width,height,levels,nextLevel;boolean hasDepth,hasPlate,hasCine; }
     /** Everything one draw call needs; RenderLoop reuses two instances (current and outgoing). */
     static final class Pass {
         int layer;Effects.Effect effect=Effects.ALL[0];float a,b,toggle,cropX=.5f,cropY=.5f,scale=1.08f,alpha=1;
@@ -47,7 +47,7 @@ final class GlScene {
     final int[] vao=new int[1],vbo=new int[1],fbo=new int[3],scratch=new int[3],oes=new int[2];
     final Layer[] layers={new Layer(),new Layer()};
     final float[] projection=new float[15];
-    int blurSource,blurLevel,blurStep,renderWidth,renderHeight,neutralDepth,video,videoSource,videoTransform,videoLoop,videoMix;
+    int blurSource,blurLevel,blurStep,renderWidth,renderHeight,neutralDepth,video,videoSource,videoTransform,videoLoop,videoMix,videoMask,videoStill,videoCine;
     /** Second-layer target (created on first use, sized with the quality target) and whether this frame ends in it. */
     int overlayTexture,overlayFbo,overlayWidth,overlayHeight;boolean overlaid;
     /** Per layer: a copy of the clip's first frame for the seamless loop (created on first capture) and its size. */
@@ -94,6 +94,24 @@ final class GlScene {
     void upload(int index,Bitmap b){
         Layer l=layers[index];l.width=b.getWidth();l.height=b.getHeight();l.levels=(int)(Math.log(Math.max(l.width,l.height))/Math.log(2));
         glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,l.image);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAX_LEVEL,l.levels);GLUtils.texImage2D(GL_TEXTURE_2D,0,b,0);glGenerateMipmap(GL_TEXTURE_2D);l.nextLevel=1;l.hasDepth=false;check("upload");
+    }
+    /**
+     * The layer's cinemagraph (ImageStore.cine): the painted mask and the still frame the rest of the picture holds
+     * (the clip's poster, i.e. its first frame). Null mask: the whole clip plays.
+     */
+    void uploadCine(int index,Bitmap mask,Bitmap still){
+        Layer l=layers[index];
+        if(mask==null||still==null){l.hasCine=false;return;}
+        if(l.mask==0)l.mask=plainTexture();
+        if(l.still==0)l.still=plainTexture();
+        glActiveTexture(GL_TEXTURE5);glBindTexture(GL_TEXTURE_2D,l.mask);GLUtils.texImage2D(GL_TEXTURE_2D,0,mask,0);
+        glBindTexture(GL_TEXTURE_2D,l.still);GLUtils.texImage2D(GL_TEXTURE_2D,0,still,0);glActiveTexture(GL_TEXTURE0);
+        l.hasCine=true;check("cinemagraph upload");
+    }
+    static int plainTexture(){
+        int[] t=new int[1];glGenTextures(1,t,0);glBindTexture(GL_TEXTURE_2D,t[0]);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);return t[0];
     }
     /** The layer's background plate (Inpaint), or none: depth effects then fill behind the subject themselves. */
     void uploadPlate(int index,Bitmap b){
@@ -151,7 +169,7 @@ final class GlScene {
      * the per-level Gaussian pyramid would take a frame per level, longer than a video frame lives.
      */
     void blitVideo(int index,float[] transform,int videoWidth,int videoHeight,float loopMix)throws IOException{
-        if(video==0){video=program(vertex,asset(context,"video_blit.glsl"));videoSource=glGetUniformLocation(video,"u_video");videoTransform=glGetUniformLocation(video,"u_transform");videoLoop=glGetUniformLocation(video,"u_loop");videoMix=glGetUniformLocation(video,"u_mix");}
+        if(video==0){video=program(vertex,asset(context,"video_blit.glsl"));videoSource=glGetUniformLocation(video,"u_video");videoTransform=glGetUniformLocation(video,"u_transform");videoLoop=glGetUniformLocation(video,"u_loop");videoMix=glGetUniformLocation(video,"u_mix");videoMask=glGetUniformLocation(video,"u_mask");videoStill=glGetUniformLocation(video,"u_still");videoCine=glGetUniformLocation(video,"u_cine");}
         Layer l=layers[index];int w=VideoPlayer.capped(videoWidth,videoHeight),h=VideoPlayer.capped(videoHeight,videoWidth);
         glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,l.image);glBindFramebuffer(GL_FRAMEBUFFER,fbo[2]);
         boolean resized=l.width!=w||l.height!=h;
@@ -163,6 +181,8 @@ final class GlScene {
         // The loop copy always sits on its own unit, so the sampler never points at the image being written (a feedback loop).
         boolean blend=loopMix>0&&loopFrames[index]!=0&&loopSizes[index*2]==w&&loopSizes[index*2+1]==h;
         glActiveTexture(GL_TEXTURE4);glBindTexture(GL_TEXTURE_2D,blend?loopFrames[index]:neutralDepth);glUniform1i(videoLoop,4);glUniform1f(videoMix,blend?loopMix:0);
+        glActiveTexture(GL_TEXTURE5);glBindTexture(GL_TEXTURE_2D,l.hasCine?l.mask:neutralDepth);glUniform1i(videoMask,5);
+        glActiveTexture(GL_TEXTURE6);glBindTexture(GL_TEXTURE_2D,l.hasCine?l.still:neutralDepth);glUniform1i(videoStill,6);glUniform1f(videoCine,l.hasCine?1:0);
         glDrawArrays(GL_TRIANGLES,0,6);glBindFramebuffer(GL_FRAMEBUFFER,0);
         glActiveTexture(GL_TEXTURE0);glGenerateMipmap(GL_TEXTURE_2D);l.nextLevel=l.levels+1;check("video blit");
     }
@@ -233,7 +253,7 @@ final class GlScene {
     static void check(String at){int e=glGetError();if(e!=GL_NO_ERROR)throw new IllegalStateException(at+": GL "+Integer.toHexString(e));}
     void close(){
         for(int[] p:programs.values())glDeleteProgram(p[0]);programs.clear();glDeleteProgram(blur);
-        glDeleteTextures(1,new int[]{field},0);for(Layer l:layers)if(l.plate!=0)glDeleteTextures(1,new int[]{l.plate},0);glDeleteTextures(8,new int[]{layers[0].image,layers[1].image,layers[0].depth,layers[1].depth,scratch[0],scratch[1],neutralDepth,scratch[2]},0);
+        glDeleteTextures(1,new int[]{field},0);for(Layer l:layers)for(int t:new int[]{l.plate,l.mask,l.still})if(t!=0)glDeleteTextures(1,new int[]{t},0);glDeleteTextures(8,new int[]{layers[0].image,layers[1].image,layers[0].depth,layers[1].depth,scratch[0],scratch[1],neutralDepth,scratch[2]},0);
         for(int t:oes)if(t!=0)glDeleteTextures(1,new int[]{t},0);for(int t:loopFrames)if(t!=0)glDeleteTextures(1,new int[]{t},0);if(video!=0)glDeleteProgram(video);
         glDeleteFramebuffers(3,fbo,0);if(overlayFbo!=0){glDeleteFramebuffers(1,new int[]{overlayFbo},0);glDeleteTextures(1,new int[]{overlayTexture},0);}glDeleteBuffers(1,vbo,0);glDeleteVertexArrays(1,vao,0);
     }

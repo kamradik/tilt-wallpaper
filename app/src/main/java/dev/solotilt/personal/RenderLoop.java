@@ -27,7 +27,9 @@ final class RenderLoop {
     WallpaperConfig config;float x,y;volatile float rawX,rawY;long previousVsync,lastDraw,transitionStart,transitionNanos=220_000_000L;
     volatile int generation;int mode=SHOW_HOME;boolean locked;
     // Per layer (0 home, 1 lock): CPU copy for the still fallback, the media key it was loaded from, depth state.
-    final Bitmap[] bitmaps=new Bitmap[2];final String[] loadedKeys=new String[2];final boolean[] depthReady=new boolean[2],manualDepth=new boolean[2];
+    final Bitmap[] bitmaps=new Bitmap[2];final String[] loadedKeys=new String[2];
+    /** Per layer: the cinemagraph mask revision uploaded (ImageStore.cineRevision; 0 none, -1 unknown after a context loss). */
+    final long[] loadedCine=new long[2];final boolean[] depthReady=new boolean[2],manualDepth=new boolean[2];
     final GlScene.Pass current=new GlScene.Pass(),outgoing=new GlScene.Pass();boolean hasCurrent,fading;
     /** The active profile's second layer, drawn over current (and over a crossfade in progress). */
     final GlScene.Pass layered=new GlScene.Pass();boolean hasLayer;
@@ -131,10 +133,10 @@ final class RenderLoop {
     void prepare(){
         if(closed)return;final int request=++generation;loading=true;
         // Snapshot render-thread state; the worker must not read fields this thread keeps changing.
-        final boolean[] want=new boolean[2],needDepth=new boolean[2],missingDepth=new boolean[2];final String[] keys=new String[2],videos=new String[2],loaded=loadedKeys.clone();
+        final boolean[] want=new boolean[2],needDepth=new boolean[2],missingDepth=new boolean[2];final String[] keys=new String[2],videos=new String[2],loaded=loadedKeys.clone();final long[] cineLoaded=loadedCine.clone();
         for(int i=0;i<2;i++){want[i]=needed(i);needDepth[i]=needsDepth(i);missingDepth[i]=needDepth[i]&&!depthReady[i];}
         PREPARE.execute(()->{
-            final Bitmap[] photos=new Bitmap[2],maps=new Bitmap[2],plates=new Bitmap[2];final boolean[] imported=new boolean[2];String failure=null;final long[][] keyframes=new long[2][];
+            final Bitmap[] photos=new Bitmap[2],maps=new Bitmap[2],plates=new Bitmap[2],masks=new Bitmap[2],stills=new Bitmap[2];final long[] cines=new long[2];final boolean[] cineChanged=new boolean[2];final boolean[] imported=new boolean[2];String failure=null;final long[][] keyframes=new long[2][];
             for(int i=0;i<2;i++){
                 if(!want[i])continue;String slot=mediaSlot(i);keys[i]=DepthMapManager.key(context,slot);
                 // A video slot's photo is its poster frame: it is the still fallback, the first frame shown and the depth source.
@@ -143,6 +145,12 @@ final class RenderLoop {
                 // (the poster's map serves until then) and prepare again when it is done.
                 if(needDepth[i]&&videos[i]!=null&&!DepthMapManager.manual(context,keys[i])){keyframes[i]=VideoDepth.ready(context,keys[i]);
                     if(keyframes[i]==null)VideoDepth.ensure(context,slot,keys[i],()->handler.post(this::prepare));}
+                // Cinemagraph: the painted mask and the still it holds elsewhere (the poster, at the copy's size).
+                cines[i]=videos[i]==null?0:ImageStore.cineRevision(context,slot);cineChanged[i]=cines[i]!=cineLoaded[i];
+                if(cineChanged[i]&&cines[i]!=0)try{masks[i]=ImageStore.cine(context,slot);Bitmap poster=ImageStore.load(context,slot);
+                    int w=VideoPlayer.capped(poster.getWidth(),poster.getHeight()),h=VideoPlayer.capped(poster.getHeight(),poster.getWidth());
+                    stills[i]=w==poster.getWidth()&&h==poster.getHeight()?poster:Bitmap.createScaledBitmap(poster,w,h,true);if(stills[i]!=poster)poster.recycle();
+                }catch(Exception|OutOfMemoryError e){Log.w("SoloVideo","Cinemagraph mask unavailable",e);recycle(masks);recycle(stills);}
                 if(keys[i].equals(loaded[i])&&!missingDepth[i])continue;
                 try{photos[i]=ImageStore.load(context,slot);
                     if(needDepth[i])try{maps[i]=DepthMapManager.load(context,photos[i],keys[i]);imported[i]=DepthMapManager.manual(context,keys[i]);if(!imported[i])plates[i]=DepthMapManager.plate(context,keys[i]);}catch(Exception|OutOfMemoryError e){Log.w("SoloDepth","Preparation failed",e);failure="depth";}
@@ -150,7 +158,7 @@ final class RenderLoop {
             }
             final String problem=failure;
             boolean posted=handler.post(()->{
-                if(closed||request!=generation){recycle(photos);recycle(maps);recycle(plates);return;}
+                if(closed||request!=generation){recycle(photos);recycle(maps);recycle(plates);recycle(masks);recycle(stills);return;}
                 loading=false;try{
                     System.arraycopy(videos,0,videoKeys,0,2);
                     for(int i=0;i<2;i++)if(want[i]){videoDepth[i]=keyframes[i];videoDepthShown[i]=-1;}
@@ -160,16 +168,18 @@ final class RenderLoop {
                         if(scene!=null)scene.upload(i,bitmaps[i]);
                         if(maps[i]!=null&&scene!=null){scene.uploadDepth(i,maps[i]);scene.uploadPlate(i,plates[i]);depthReady[i]=true;manualDepth[i]=imported[i];}
                     }
+                    for(int i=0;i<2;i++)if(want[i]&&cineChanged[i]&&scene!=null){scene.uploadCine(i,masks[i],stills[i]);loadedCine[i]=masks[i]!=null?cines[i]:0;}
                     syncVideo();if(problem!=null)notifyError(problem);retarget(false);schedule();
-                }catch(Exception|OutOfMemoryError ex){fail(ex);}finally{recycle(photos);recycle(maps);recycle(plates);}
+                }catch(Exception|OutOfMemoryError ex){fail(ex);}finally{recycle(photos);recycle(maps);recycle(plates);recycle(masks);recycle(stills);}
             });
-            if(!posted){recycle(photos);recycle(maps);recycle(plates);}
+            if(!posted){recycle(photos);recycle(maps);recycle(plates);recycle(masks);recycle(stills);}
         });
     }
     static void recycle(Bitmap[] items){for(int i=0;i<items.length;i++)if(items[i]!=null){items[i].recycle();items[i]=null;}}
     void uploadAll()throws Exception{
         if(scene==null)return;
         for(int i=0;i<2;i++)if(bitmaps[i]!=null){scene.upload(i,bitmaps[i]);depthReady[i]=false;}
+        java.util.Arrays.fill(loadedCine,-1); // the masks died with the context: prepare() uploads them again
         hasCurrent=false;retarget(false); // photos re-uploaded from memory; prepare() reloads only the depth maps that died with the context
     }
 

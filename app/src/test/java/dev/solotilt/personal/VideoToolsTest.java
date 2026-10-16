@@ -91,4 +91,8 @@ public class VideoToolsTest {
         assertTrue("3 min at the highest rate fits",12_000_000L/8*180<ImageStore.MAX_VIDEO_BYTES);
         assertEquals(2_000_000,VideoTranscode.bitRate(320,240,15));
     }
+    @Test public void anEmptyCinemagraphMaskCountsAsNone(){
+        assertFalse(CinemagraphActivity.painted(new int[]{0,0x05ffffff,0x0a000000}));  // nothing, or faint stroke edges only
+        assertTrue(CinemagraphActivity.painted(new int[]{0,0x80ffffff}));
+    }
 }

@@ -80,6 +80,7 @@ final class ImageStore {
             synchronized(LOCK){
                 writePhoto(file(c,slot),poster);
                 if(!temp.renameTo(target))throw new IOException("The video cannot be saved");
+                dropCine(c,slot); // the mask was painted on the previous clip
             }
             prefs(c).edit().putBoolean(key("video",slot),true).putBoolean(key("custom",slot),true).putLong(key("revision",slot),System.nanoTime()).apply();
         }finally{if(poster!=null)poster.recycle();if(temp.exists()&&!temp.delete())android.util.Log.w("SoloVideo","Cannot delete "+temp);}
@@ -91,7 +92,23 @@ final class ImageStore {
         catch(Exception e){if(stream!=null)target.failWrite(stream);throw e instanceof IOException?(IOException)e:new IOException(e);}
     }
     /** A slot switched back to a photo drops its clip: nothing can reach it again (the custom photo is now a still). */
-    static void dropVideo(Context c,String slot){synchronized(LOCK){File f=videoFile(c,slot);if(f.exists()&&!f.delete())android.util.Log.w("SoloVideo","Cannot delete "+f);}}
+    static void dropVideo(Context c,String slot){synchronized(LOCK){File f=videoFile(c,slot);if(f.exists()&&!f.delete())android.util.Log.w("SoloVideo","Cannot delete "+f);}dropCine(c,slot);}
+
+    // ---- cinemagraph ----
+    // A video slot may carry a painted mask (white where the clip moves, soft edges): the rest of the frame holds the
+    // first frame. It belongs to one clip, so a new clip or a photo drops it.
+    static File cineFile(Context c,String slot){return new File(c.getFilesDir(),WallpaperConfig.LOCK.equals(slot)?"cine_lock.png":"cine.png");}
+    static boolean hasCine(Context c,String slot){return isVideo(c,slot)&&cineFile(c,slot).isFile();}
+    /** Changes whenever the mask does (0: none), so a renderer knows to upload it again. */
+    static long cineRevision(Context c,String slot){return hasCine(c,slot)?prefs(c).getLong(key("cine_revision",slot),1):0;}
+    static Bitmap cine(Context c,String slot){File f=cineFile(c,slot);if(!f.isFile())return null;BitmapFactory.Options o=new BitmapFactory.Options();o.inPremultiplied=true;return BitmapFactory.decodeFile(f.getPath(),o);}
+    /** Saves the mask (null removes it) and bumps the video revision, so running engines reload it. Call off the main thread. */
+    static void setCine(Context c,String slot,Bitmap mask)throws IOException{
+        AtomicFile target=new AtomicFile(cineFile(c,slot));
+        if(mask==null)target.delete();else writePhoto(target,mask);
+        prefs(c).edit().putLong(key("cine_revision",slot),System.nanoTime()).putLong(key("video_revision",slot),System.nanoTime()).apply();
+    }
+    static void dropCine(Context c,String slot){File f=cineFile(c,slot);if(f.exists()&&!f.delete())android.util.Log.w("SoloVideo","Cannot delete "+f);}
     static void importImage(Context c,Uri uri,String slot)throws IOException{
         Bitmap image=decode(ImageDecoder.createSource(c.getContentResolver(),uri));
         try{
@@ -111,6 +128,9 @@ final class ImageStore {
                 try{java.nio.file.Files.copy(videoFile(c,from).toPath(),temp.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);if(!temp.renameTo(clip))throw new IOException("The video cannot be copied");}
                 finally{if(temp.exists()&&!temp.delete())android.util.Log.w("SoloVideo","Cannot delete "+temp);}
             }else if(clip.exists()&&!clip.delete())android.util.Log.w("SoloVideo","Cannot delete "+clip);
+            File mask=cineFile(c,to);
+            if(video&&cineFile(c,from).isFile())java.nio.file.Files.copy(cineFile(c,from).toPath(),mask.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            else dropCine(c,to);
         }
         prefs(c).edit().putBoolean(key("custom",to),isCustom(c,from)).putBoolean(key("video",to),video).putBoolean(key("scrub",to),isScrub(c,from)).putInt(key("preset",to),presetIndex(c,from)).putLong(key("revision",to),System.nanoTime()).apply();
     }

@@ -16,7 +16,7 @@ import static dev.solotilt.personal.Ios.*;
 
 /** The hub: live preview of the selected screen, the effect sheet, and the searchable catalog. */
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
-    static final int PICK_PHOTO=10,PICK_DEPTH=11,ONBOARD=12,TRIM=13,PICK_SERIES=14;
+    static final int PICK_PHOTO=10,PICK_DEPTH=11,ONBOARD=12,TRIM=13,PICK_SERIES=14,CINE=15;
     /** Catalog filters below -2 are the curated collections: -10 is collection 0, -11 collection 1, ... */
     static final int COLLECTION_FILTER=-10;
     static final String[] PRESETS_RU={"Розовые ленты","Синие ленты","Янтарные ленты"},PRESETS_EN={"Rose ribbons","Blue ribbons","Amber ribbons"};
@@ -47,6 +47,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         // App shortcut "Choose photo" (ShortcutActivity) opens the picker straight away.
         if(state==null&&"pick".equals(getIntent().getStringExtra("action")))main.postDelayed(()->pick(PICK_PHOTO),400);
         if(state==null&&!OnboardingActivity.seen(this))main.postDelayed(this::openOnboarding,350);
+        else if(state==null&&WhatsNewActivity.due(this))main.postDelayed(()->{if(!isFinishing()&&!isDestroyed()){startActivity(new Intent(this,WhatsNewActivity.class));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);}},350);
     }
     void openOnboarding(){if(isFinishing()||isDestroyed())return;startActivityForResult(new Intent(this,OnboardingActivity.class),ONBOARD);overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);}
     void push(Class<?> activity){saveNow();startActivity(new Intent(this,activity).putExtra(PresetsActivity.EXTRA_SLOT,slot));overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);}
@@ -158,7 +159,11 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             unitSlider(this,card,en?e.bEn:e.bRu,v[1],x->{profile().current()[1]=x/100f;persist();});
             if(e.hasSwitch()){Toggle t=new Toggle(this);t.setOn(v[2]>.5f,false);t.setContentDescription(en?e.switchEn:e.switchRu);t.listener=on->{profile().current()[2]=on?1:0;persist();};row(this,card,en?e.switchEn:e.switchRu,t);}
             if(ImageStore.isVideo(this,mediaSlot())){Toggle scrub=new Toggle(this);scrub.setOn(ImageStore.isScrub(this,mediaSlot()),false);scrub.setContentDescription(tr("Перемотка наклоном","Tilt scrub"));
-                scrub.listener=on->{ImageStore.setScrub(this,mediaSlot(),on);renderer.reload();swap(status,on?tr("Наклоняй телефон, чтобы листать видео","Tilt to scrub through the video"):"");};row(this,card,tr("Перемотка наклоном","Tilt scrub"),scrub);}
+                scrub.listener=on->{ImageStore.setScrub(this,mediaSlot(),on);renderer.reload();swap(status,on?tr("Наклоняй телефон, чтобы листать видео","Tilt to scrub through the video"):"");};row(this,card,tr("Перемотка наклоном","Tilt scrub"),scrub);
+                // Cinemagraph: paint the part of the clip that keeps moving; the rest holds the first frame.
+                boolean cine=ImageStore.hasCine(this,mediaSlot());TextView paint=text(this,cine?tr("Изменить","Edit"):tr("Нарисовать","Paint"),17,REGULAR,BLUE);paint.setClickable(true);
+                paint.setOnClickListener(x->{startActivityForResult(CinemagraphActivity.intent(this,mediaSlot()),CINE);overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);});
+                row(this,card,tr("Синемаграф","Cinemagraph"),pressable(paint));}
             if(e.has(Effects.DEPTH)){TextView importDepth=text(this,tr("Импорт карты","Import map"),17,REGULAR,BLUE);importDepth.setClickable(true);importDepth.setOnClickListener(x->pick(PICK_DEPTH));row(this,card,tr("Глубина","Depth"),pressable(importDepth));}
             TextView reset=text(this,tr("Сбросить эффект","Reset effect"),17,REGULAR,0xffff453a);reset.setClickable(true);reset.setOnClickListener(x->{profile().reset(e.id);persist();refresh();});row(this,card,null,pressable(reset));
             if(e.has(Effects.DEPTH))footer(this,params,tr("Глубину по фото рассчитывает нейросеть Depth Anything прямо на телефоне, один раз на фото. Можно загрузить свою карту: белое — ближе, чёрное — дальше.","Depth is computed from your photo by the Depth Anything network, on the phone, once per photo. You can also import your own map: white is near, black is far."));
@@ -477,6 +482,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         if(request==PICK_SERIES){if(result==RESULT_OK&&data!=null)importSeries(data);return;}
         if(request==ONBOARD){if(result==RESULT_OK)main.postDelayed(this::install,300);return;}
         // The trim screen imports the clip itself; refresh either way, since a back press during saving still finishes the import.
+        if(request==CINE){if(result==RESULT_OK){renderer.reload();refresh();swap(status,ImageStore.hasCine(this,mediaSlot())?tr("Синемаграф готов: двигается только закрашенное","Cinemagraph ready: only the painted part moves"):tr("Видео снова двигается целиком","The whole video moves again"));}return;}
         if(request==TRIM){renderer.reload();mediaChanged(result==RESULT_OK?tr("Видео готово. Выбери эффект.","Video ready. Pick an effect."):"");return;}
         // Videos go through the trim screen (cut, audio removed) before they become the wallpaper.
         if(request==PICK_PHOTO&&result==RESULT_OK&&data!=null&&data.getData()!=null){String type=getContentResolver().getType(data.getData());
