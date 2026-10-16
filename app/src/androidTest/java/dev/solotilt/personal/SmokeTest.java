@@ -69,7 +69,7 @@ public final class SmokeTest {
         click(scrollTo(any("Диагностика","Diagnostics")));
         scrollTo(any("Журнал сбоев","Crash log"));pause(1200);shot("06_diagnostics");
         back();
-        check(find(any("Движение","Motion"))!=null,"back in settings");
+        check(find(any("Диагностика","Diagnostics"))!=null,"back in settings");  // the list is still scrolled down to it
     }
 
     // ---- small UiAutomation toolkit ----
