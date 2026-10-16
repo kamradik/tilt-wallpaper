@@ -28,12 +28,16 @@ public final class AuthorActivity extends Activity {
     private Animator ambient,floatAnimation;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Runnable progress=new Runnable(){public void run(){updateProgress();if(resumed)main.postDelayed(this,250);}};
+    boolean en;
+    String tr(String ru,String en){return this.en?en:ru;}
     int dp(float n){return Ios.dp(this,n);}
     LinearLayout.LayoutParams row(int width,int height,int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(width,height);p.topMargin=dp(top);p.gravity=Gravity.CENTER_HORIZONTAL;return p;}
     TextView centered(String value,float size,int weight,int color){TextView t=text(this,value,size,weight,color);t.setGravity(Gravity.CENTER);return t;}
 
+    /** The installed version name, e.g. 2.1-beta1. */
+    String version(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(android.content.pm.PackageManager.NameNotFoundException e){return "";}}
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);
+        super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);en=WallpaperConfig.load(this).en();
         enabled=getPreferences(0).getBoolean("music",true);position=state==null?0:state.getInt("position",0);
         audio=getSystemService(AudioManager.class);
         focus=new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
@@ -59,18 +63,18 @@ public final class AuthorActivity extends Activity {
         LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setGravity(Gravity.CENTER);content.setClipChildren(false);scroll.addView(content,new ScrollView.LayoutParams(-1,-2));
 
         FrameLayout portrait=new FrameLayout(this);portrait.setClipChildren(false);content.addView(portrait,row(dp(132),dp(132),12));
-        ImageView photo=new ImageView(this);photo.setImageBitmap(avatar);photo.setScaleType(ImageView.ScaleType.CENTER_CROP);photo.setContentDescription("Аватарка Kamradik");
+        ImageView photo=new ImageView(this);photo.setImageBitmap(avatar);photo.setScaleType(ImageView.ScaleType.CENTER_CROP);photo.setContentDescription(tr("Аватарка Kamradik","Kamradik’s avatar"));
         photo.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View v,Outline o){o.setOval(0,0,v.getWidth(),v.getHeight());}});photo.setClipToOutline(true);photo.setElevation(px(this,20));photo.setOutlineSpotShadowColor(0xff000000);
         photo.setForeground(new Shape(0,-1).stroke(px(this,1),0x40ffffff));portrait.addView(photo,new FrameLayout.LayoutParams(-1,-1));
         ObjectAnimator hover=ObjectAnimator.ofFloat(portrait,View.TRANSLATION_Y,-px(this,4),px(this,4));hover.setDuration(1800);hover.setRepeatCount(ValueAnimator.INFINITE);hover.setRepeatMode(ValueAnimator.REVERSE);floatAnimation=hover;
         TextView name=centered("Kamradik",34,BOLD,LABEL);content.addView(name,row(-2,-2,20));
-        content.addView(centered("Разработчик · любитель красивых пикселей",15,REGULAR,SECONDARY),row(-2,-2,4));
-        TextView message=centered("Немного магии.\nИ совершенно новый взгляд на экран.",19,MEDIUM,0xebffffff);message.setLineSpacing(px(this,4),1);content.addView(message,row(-2,-2,26));
+        content.addView(centered(tr("Разработчик · любитель красивых пикселей","Developer · lover of beautiful pixels"),15,REGULAR,SECONDARY),row(-2,-2,4));
+        TextView message=centered(tr("Немного магии.\nИ совершенно новый взгляд на экран.","A little magic.\nAnd a whole new look at your screen."),19,MEDIUM,0xebffffff);message.setLineSpacing(px(this,4),1);content.addView(message,row(-2,-2,26));
         LinearLayout github=new LinearLayout(this);github.setGravity(Gravity.CENTER);github.setBackground(new Shape(0xfff5f5f7,-1));github.setClickable(true);github.setFocusable(true);
         github.addView(text(this,"GitHub · kamradik",17,SEMIBOLD,0xff0b0b0d));ImageView arrow=new ImageView(this);arrow.setImageDrawable(new Glyph(this,Glyph.LINK,0xff0b0b0d,18));
         LinearLayout.LayoutParams arrowParams=new LinearLayout.LayoutParams(-2,-2);arrowParams.leftMargin=dp(6);github.addView(arrow,arrowParams);
-        github.setContentDescription("Открыть GitHub разработчика Kamradik");content.addView(pressable(github),row(-1,dp(54),30));
-        github.setOnClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/kamradik")));}catch(ActivityNotFoundException e){Toast.makeText(this,"Не найден браузер для открытия GitHub",Toast.LENGTH_LONG).show();}});
+        github.setContentDescription(tr("Открыть GitHub разработчика Kamradik","Open Kamradik’s GitHub"));content.addView(pressable(github),row(-1,dp(54),30));
+        github.setOnClickListener(v->{v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/kamradik")));}catch(ActivityNotFoundException e){Toast.makeText(this,tr("Не найден браузер для открытия GitHub","No browser found to open GitHub"),Toast.LENGTH_LONG).show();}});
 
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setBackground(new Shape(0x33000000,px(this,26)).glass(Math.max(1,px(this,.7f))));card.setPadding(dp(16),dp(16),dp(16),dp(14));content.addView(card,row(-1,-2,14));
         LinearLayout track=new LinearLayout(this);track.setGravity(Gravity.CENTER_VERTICAL);card.addView(track);
@@ -80,7 +84,7 @@ public final class AuthorActivity extends Activity {
         LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);titles.addView(titleRow);
         TextView song=text(this,"отвратительный король",17,SEMIBOLD,LABEL);song.setSingleLine(true);song.setEllipsize(android.text.TextUtils.TruncateAt.END);titleRow.addView(song,new LinearLayout.LayoutParams(0,-2,1));
         equalizer=new Equalizer();LinearLayout.LayoutParams eqParams=new LinearLayout.LayoutParams(dp(16),dp(14));eqParams.leftMargin=dp(8);titleRow.addView(equalizer,eqParams);
-        TextView about=text(this,"Саундтрек этой страницы",15,REGULAR,SECONDARY);about.setPadding(0,dp(2),0,0);titles.addView(about);
+        TextView about=text(this,tr("Саундтрек этой страницы","This page’s soundtrack"),15,REGULAR,SECONDARY);about.setPadding(0,dp(2),0,0);titles.addView(about);
         play=new ImageView(this);play.setScaleType(ImageView.ScaleType.CENTER);play.setBackground(new Shape(0xfff5f5f7,-1));play.setClickable(true);play.setFocusable(true);track.addView(pressable(play),new LinearLayout.LayoutParams(dp(48),dp(48)));
         play.setOnClickListener(v->{
             v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
@@ -92,15 +96,15 @@ public final class AuthorActivity extends Activity {
         LinearLayout times=new LinearLayout(this);card.addView(times,row(-1,-2,6));
         elapsed=text(this,"0:00",12,MEDIUM,SECONDARY);elapsed.setFontFeatureSettings("tnum");times.addView(elapsed,new LinearLayout.LayoutParams(0,-2,1));
         remaining=text(this,"−0:00",12,MEDIUM,SECONDARY);remaining.setFontFeatureSettings("tnum");times.addView(remaining);
-        musicHint=centered("Тихо · только пока открыта эта страница",13,REGULAR,SECONDARY);card.addView(musicHint,row(-1,-2,10));
-        content.addView(centered("TILT 1.1 · СДЕЛАНО KAMRADIK",11,MEDIUM,TERTIARY),row(-2,-2,28));
+        musicHint=centered(tr("Тихо · только пока открыта эта страница","Quiet · only while this page is open"),13,REGULAR,SECONDARY);card.addView(musicHint,row(-1,-2,10));
+        content.addView(centered(("PARALLAXIA "+version()+tr(" · СДЕЛАНО KAMRADIK"," · MADE BY KAMRADIK")).toUpperCase(java.util.Locale.ROOT),11,MEDIUM,TERTIARY),row(-2,-2,28));
         updateMusic();
 
         // Navigation bar: a glass back button, and a compact title that appears once the large name scrolls under it (UINavigationBar).
         FrameLayout nav=new FrameLayout(this);root.addView(nav,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
         View navBackground=new View(this);navBackground.setBackgroundColor(0xd9101012);navBackground.setAlpha(0);nav.addView(navBackground,new FrameLayout.LayoutParams(-1,-1));
         View navLine=hairline(this);navLine.setAlpha(0);nav.addView(navLine,new FrameLayout.LayoutParams(-1,Math.max(1,dp(.5f)),Gravity.BOTTOM));
-        ImageView back=circle(this,Glyph.BACK,"Назад");back.setOnClickListener(v->finish());FrameLayout.LayoutParams backParams=new FrameLayout.LayoutParams(dp(44),dp(44),Gravity.START|Gravity.BOTTOM);backParams.leftMargin=dp(16);backParams.bottomMargin=dp(8);nav.addView(back,backParams);
+        ImageView back=circle(this,Glyph.BACK,tr("Назад","Back"));back.setOnClickListener(v->finish());FrameLayout.LayoutParams backParams=new FrameLayout.LayoutParams(dp(44),dp(44),Gravity.START|Gravity.BOTTOM);backParams.leftMargin=dp(16);backParams.bottomMargin=dp(8);nav.addView(back,backParams);
         TextView navTitle=text(this,"Kamradik",17,SEMIBOLD,LABEL);navTitle.setAlpha(0);FrameLayout.LayoutParams navTitleParams=new FrameLayout.LayoutParams(-2,dp(44),Gravity.CENTER_HORIZONTAL|Gravity.BOTTOM);navTitleParams.bottomMargin=dp(8);navTitle.setGravity(Gravity.CENTER);nav.addView(navTitle,navTitleParams);
         scroll.setOnScrollChangeListener((v,x,y,ox,oy)->{float t=Math.max(0,Math.min(1,(y+nav.getHeight()-name.getTop()-name.getHeight()/2f)/px(this,24)));navTitle.setAlpha(t);navTitle.setTranslationY((1-t)*px(this,6));navBackground.setAlpha(t);navLine.setAlpha(t);});
         root.setOnApplyWindowInsetsListener((v,i)->{
@@ -123,8 +127,8 @@ public final class AuthorActivity extends Activity {
             next.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
             next.setDataSource(fd.getFileDescriptor(),fd.getStartOffset(),fd.getLength());next.setLooping(true);next.setVolume(.12f,.12f);
             next.setOnPreparedListener(p->{if(player!=p||!resumed)return;prepared=true;if(position>0)p.seekTo(position);if(enabled)startMusic();else updateMusic();});
-            next.setOnErrorListener((p,what,extra)->{if(player==p){releaseMusic();updateMusic();swap(musicHint,"Не удалось воспроизвести музыку · нажми ▶ для повтора");}return true;});next.prepareAsync();
-        }catch(IOException|RuntimeException e){releaseMusic();updateMusic();swap(musicHint,"Не удалось открыть аудиофайл · нажми ▶ для повтора");return;}
+            next.setOnErrorListener((p,what,extra)->{if(player==p){releaseMusic();updateMusic();swap(musicHint,tr("Не удалось воспроизвести музыку · нажми ▶ для повтора","Could not play the music · tap ▶ to retry"));}return true;});next.prepareAsync();
+        }catch(IOException|RuntimeException e){releaseMusic();updateMusic();swap(musicHint,tr("Не удалось открыть аудиофайл · нажми ▶ для повтора","Could not open the audio file · tap ▶ to retry"));return;}
         updateMusic();
     }
     private void startMusic(){if(!resumed||!enabled||!prepared||player==null)return;focused=audio.requestAudioFocus(focus)==AudioManager.AUDIOFOCUS_REQUEST_GRANTED;if(focused)player.start();updateMusic();}

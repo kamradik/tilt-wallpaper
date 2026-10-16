@@ -535,7 +535,8 @@ final class Ios {
         ImageView icon=new ImageView(c);icon.setImageDrawable(new Glyph(c,Glyph.SEARCH,SECONDARY,18));container.addView(icon);
         EditText field=new EditText(c);field.setHint(hint);field.setHintTextColor(SECONDARY);field.setTextColor(LABEL);field.setTextSize(TypedValue.COMPLEX_UNIT_SP,17);field.setTypeface(font(REGULAR));
         field.setSingleLine(true);field.setBackground(null);field.setPadding(dp(c,8),0,dp(c,8),0);field.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);container.addView(field,new LinearLayout.LayoutParams(0,-1,1));
-        ImageView clear=new ImageView(c);clear.setImageDrawable(new Glyph(c,Glyph.CLOSE,SECONDARY,16));clear.setContentDescription("Очистить");clear.setAccessibilityDelegate(BUTTON);clear.setFocusable(true);clear.setVisibility(View.GONE);clear.setPadding(dp(c,6),0,dp(c,6),0);container.addView(clear,new LinearLayout.LayoutParams(-2,-1));
+        ImageView clear=new ImageView(c);clear.setImageDrawable(new Glyph(c,Glyph.CLOSE,SECONDARY,16));clear.setContentDescription(hint!=null&&hint.matches("(?s).*[А-Яа-яЁё].*")?"Очистить":"Clear");  // the hint is already in the UI language
+        clear.setAccessibilityDelegate(BUTTON);clear.setFocusable(true);clear.setVisibility(View.GONE);clear.setPadding(dp(c,6),0,dp(c,6),0);container.addView(clear,new LinearLayout.LayoutParams(-2,-1));
         clear.setOnClickListener(v->field.setText(""));
         field.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int b,int n){}public void onTextChanged(CharSequence s,int a,int b,int n){clear.setVisibility(s.length()>0?View.VISIBLE:View.GONE);}public void afterTextChanged(android.text.Editable s){}});
         return field;
