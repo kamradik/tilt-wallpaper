@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  * expose usable labels. Labels match in Russian or English, whatever the in-app language is.
  */
 public final class SmokeTest {
-    static final String PKG="dev.solotilt.personal",DEVICE_SHOTS="/data/local/tmp/tilt-screenshots";static final long WAIT=10_000;
+    static final String PKG="dev.solotilt.personal",DEVICE_SHOTS="/data/local/tmp/tilt-screenshots";static final long WAIT=20_000;
     final Instrumentation instrumentation;final UiAutomation ui;final Context app;final File shots;
 
     SmokeTest(Instrumentation instrumentation){
@@ -33,9 +33,11 @@ public final class SmokeTest {
         ImageStore.prefs(app).edit().putBoolean(OnboardingActivity.SEEN,true).commit();
         launch();
     }
-    void launch(){
-        Intent launch=app.getPackageManager().getLaunchIntentForPackage(PKG);check(launch!=null,"no launch intent");
-        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK);app.startActivity(launch);
+    /** Starts the app through the activity manager and waits until it is drawn: Context.startActivity from the
+     *  instrumentation returned at once and, on a cold emulator, sometimes left the launcher in front. */
+    void launch()throws IOException{
+        check(app.getPackageManager().getLaunchIntentForPackage(PKG)!=null,"no launch intent");
+        shell("am start -W --activity-clear-task -n "+PKG+"/.MainActivity");
     }
     void tearDown(){ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);}
 
