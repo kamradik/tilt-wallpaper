@@ -69,6 +69,9 @@ jobs:
           profile: pixel_7
           disable-animations: true
           script: bash ci/ui-tests.sh
+      - name: Report UI test results as annotations
+        if: always()
+        run: python3 ci/report.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
