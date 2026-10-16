@@ -19,3 +19,13 @@ if os.path.exists('logcat.txt'):
     if errs: note("App errors (logcat)","\n".join(errs[-30:]),"warning")
 shots=sorted(os.listdir('build/screenshots')) if os.path.isdir('build/screenshots') else []
 note("Screenshots",", ".join(shots) or "none","notice")
+# Small JPEG copies of the screenshots as base64 notices, so a reviewer without repository access can still look at them.
+try:
+    import base64,io
+    from PIL import Image
+    for name in shots[:9]:
+        im=Image.open(os.path.join('build/screenshots',name)).convert('RGB');im.thumbnail((300,660))
+        buf=io.BytesIO();im.save(buf,'JPEG',quality=62,optimize=True)
+        print(f"::notice title=SHOT {name}::"+base64.b64encode(buf.getvalue()).decode())
+except Exception as e:
+    note("Screenshot thumbnails unavailable",str(e),"notice")

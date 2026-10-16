@@ -28,11 +28,21 @@ public final class SmokeTest {
     void setUp()throws Exception{
         if(!shots.isDirectory()&&!shots.mkdirs())throw new IOException("Cannot create "+shots);
         shell("input keyevent KEYCODE_WAKEUP");shell("wm dismiss-keyguard");ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);
+        // A fresh emulator would open the first-launch onboarding; the hub test starts past it (testOnboarding covers it).
+        ImageStore.prefs(app).edit().putBoolean(OnboardingActivity.SEEN,true).commit();
+        launch();
+    }
+    void launch(){
         Intent launch=app.getPackageManager().getLaunchIntentForPackage(PKG);check(launch!=null,"no launch intent");
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK);app.startActivity(launch);
     }
     void tearDown(){ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);}
 
+    public void testOnboarding()throws Exception{
+        ImageStore.prefs(app).edit().putBoolean(OnboardingActivity.SEEN,false).commit();launch();
+        find(any("Продолжить","Continue"));pause(800);shot("00_onboarding");
+        ImageStore.prefs(app).edit().putBoolean(OnboardingActivity.SEEN,true).commit();
+    }
     public void testHubCatalogSearchSettingsAuthor()throws Exception{
         find(any("Настройки","Settings"));shot("01_hub");
 

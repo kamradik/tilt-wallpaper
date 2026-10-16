@@ -27,6 +27,8 @@ public final class SmokeRunner extends Instrumentation {
             sendStatus(START,new Bundle(status));
             Throwable error=null;SmokeTest test=new SmokeTest(this);
             try{test.setUp();m.invoke(test);}catch(InvocationTargetException e){error=e.getCause();}catch(Throwable e){error=e;}
+            // What the screen showed when a step failed is usually the whole diagnosis.
+            if(error!=null)try{test.shot("fail_"+m.getName());}catch(Throwable ignored){}
             finally{try{test.tearDown();}catch(Throwable ignored){}}
             if(error==null){status.putString("stream",".");sendStatus(OK,status);}
             else{failures++;StringWriter trace=new StringWriter();error.printStackTrace(new PrintWriter(trace));
