@@ -102,7 +102,8 @@ public final class SmokeTest {
         p.setShader(new android.graphics.LinearGradient(0,220,0,480,0xff6b7a3a,0xff3c2f1c,android.graphics.Shader.TileMode.CLAMP));c.drawRect(0,220,640,480,p);
         p.setShader(null);p.setColor(0xff2a2a2a);for(int i=0;i<12;i++){float y=230+i*i*1.8f;c.drawRect(0,y,640,y+1+i*.6f,p);}  // furrows widening toward the viewer
         long t=SystemClock.elapsedRealtime();Bitmap d=MlDepth.estimate(app,b);t=SystemClock.elapsedRealtime()-t;
-        check(d.getWidth()==518,"depth width "+d.getWidth());
+        android.util.Log.w("SoloDepth","Timing: Depth Anything x2 + guided refinement took "+t+" ms on this device"); // a warning, so ci/report.py shows it
+        check(d.getWidth()==640&&d.getHeight()==480,"refined depth "+d.getWidth()+"x"+d.getHeight());
         float top=0,bottom=0;for(int x=0;x<d.getWidth();x++){top+=d.getPixel(x,d.getHeight()/10)&255;bottom+=d.getPixel(x,d.getHeight()*9/10)&255;}
         check(bottom>top,"ground "+bottom/d.getWidth()+" should be nearer than sky "+top/d.getWidth()+" ("+t+" ms)");
         b.recycle();d.recycle();

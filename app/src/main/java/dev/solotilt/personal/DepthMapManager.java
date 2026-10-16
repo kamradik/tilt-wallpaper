@@ -31,7 +31,7 @@ final class DepthMapManager {
     };
     static String key(Context c,String slot){return ImageStore.isCustom(c,slot)?ImageStore.key("custom",slot)+"-"+ImageStore.revision(c,slot):"preset-"+ImageStore.presetIndex(c,slot);}
     static File file(Context c,String key,boolean manual){return new File(c.getFilesDir(),"depth-"+key+(manual?"-manual":"-approx-v1")+".png");}
-    static File mlFile(Context c,String key){return new File(c.getFilesDir(),"depth-"+key+"-ml-v1.png");}
+    static File mlFile(Context c,String key){return new File(c.getFilesDir(),"depth-"+key+"-ml-v2.png");}
     static boolean manual(Context c,String key){return file(c,key,true).isFile();}
     /** The photo's depth map: an imported one, else the model's, else (model unavailable) the approximation. Cached. */
     static synchronized Bitmap load(Context c,Bitmap image,String key)throws IOException{
