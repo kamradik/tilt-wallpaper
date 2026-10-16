@@ -71,7 +71,7 @@ public final class SmokeTest {
     }
 
     // ---- small UiAutomation toolkit ----
-    static Pattern any(String... labels){StringBuilder b=new StringBuilder();for(String l:labels)b.append(b.length()==0?"":"|").append(Pattern.quote(l));return Pattern.compile(b.toString());}
+    static Pattern any(String... labels){StringBuilder b=new StringBuilder();for(String l:labels)b.append(b.length()==0?"":"|").append(Pattern.quote(l));return Pattern.compile(b.toString(),Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE);} // section captions are upper case
     static void check(boolean ok,String what){if(!ok)throw new AssertionError(what);}
     static void pause(long ms){SystemClock.sleep(ms);}
     void back(){ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);pause(500);}
