@@ -10,8 +10,8 @@ android {
         applicationId 'dev.solotilt.personal'
         minSdk 30
         targetSdk 36
-        versionCode 12
-        versionName '2.5-beta1'
+        versionCode 13
+        versionName '2.6-beta1'
     }
     signingConfigs {
         local {
