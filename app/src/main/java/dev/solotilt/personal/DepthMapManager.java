@@ -9,8 +9,8 @@ import java.io.*;
 /** Shared preparation/cache for Depth and Focus. Never called from doFrame. */
 final class DepthMapManager {
     interface DepthProvider { Bitmap estimate(Bitmap image)throws IOException; }
-    // ponytail: spatial/luminance prior is approximate, not semantic depth. Replace only this
-    // provider with a licensed mobile model when model size/quality has been evaluated.
+    // Fallback when the depth model cannot run (no native library for the ABI, out of memory): a spatial/luminance
+    // prior, approximate rather than semantic depth. Normally MlDepth (Depth Anything V2) provides the map.
     static final DepthProvider PROVIDER=image->{
         int w=image.getWidth(),h=image.getHeight();float ratio=Math.min(1,320f/Math.max(w,h));
         w=Math.max(1,Math.round(w*ratio));h=Math.max(1,Math.round(h*ratio));
@@ -31,9 +31,16 @@ final class DepthMapManager {
     };
     static String key(Context c,String slot){return ImageStore.isCustom(c,slot)?ImageStore.key("custom",slot)+"-"+ImageStore.revision(c,slot):"preset-"+ImageStore.presetIndex(c,slot);}
     static File file(Context c,String key,boolean manual){return new File(c.getFilesDir(),"depth-"+key+(manual?"-manual":"-approx-v1")+".png");}
+    static File mlFile(Context c,String key){return new File(c.getFilesDir(),"depth-"+key+"-ml-v1.png");}
     static boolean manual(Context c,String key){return file(c,key,true).isFile();}
+    /** The photo's depth map: an imported one, else the model's, else (model unavailable) the approximation. Cached. */
     static synchronized Bitmap load(Context c,Bitmap image,String key)throws IOException{
-        File f=file(c,key,manual(c,key));if(f.isFile()){Bitmap cached=BitmapFactory.decodeFile(f.getPath());if(cached!=null)return cached;}
+        if(manual(c,key)){Bitmap cached=BitmapFactory.decodeFile(file(c,key,true).getPath());if(cached!=null)return cached;}
+        File ml=mlFile(c,key);
+        if(ml.isFile()){Bitmap cached=BitmapFactory.decodeFile(ml.getPath());if(cached!=null)return cached;}
+        try{Bitmap result=MlDepth.estimate(c,image);try{write(ml,result);}catch(IOException e){result.recycle();throw e;}return result;}
+        catch(IOException|OutOfMemoryError e){android.util.Log.w("SoloDepth","Depth model unavailable, using the approximation",e);}
+        File f=file(c,key,false);if(f.isFile()){Bitmap cached=BitmapFactory.decodeFile(f.getPath());if(cached!=null)return cached;}
         Bitmap result=PROVIDER.estimate(image);try{write(f,result);}catch(IOException e){result.recycle();throw e;}return result;
     }
     static void importDepth(Context c,Uri uri,String slot)throws IOException{

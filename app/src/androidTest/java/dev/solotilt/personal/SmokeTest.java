@@ -72,6 +72,20 @@ public final class SmokeTest {
         check(find(any("Диагностика","Diagnostics"))!=null,"back in settings");  // the list is still scrolled down to it
     }
 
+    /** Depth Anything runs on the device: a simple landscape (sky above, ground running toward the camera) must come
+     *  out with the ground nearer (brighter) than the sky. */
+    public void testDepthModelSeesTheGroundNearerThanTheSky()throws Exception{
+        Bitmap b=Bitmap.createBitmap(640,480,Bitmap.Config.ARGB_8888);android.graphics.Canvas c=new android.graphics.Canvas(b);
+        android.graphics.Paint p=new android.graphics.Paint();
+        p.setShader(new android.graphics.LinearGradient(0,0,0,220,0xff5b8fd6,0xffcfe3f5,android.graphics.Shader.TileMode.CLAMP));c.drawRect(0,0,640,220,p);
+        p.setShader(new android.graphics.LinearGradient(0,220,0,480,0xff6b7a3a,0xff3c2f1c,android.graphics.Shader.TileMode.CLAMP));c.drawRect(0,220,640,480,p);
+        p.setShader(null);p.setColor(0xff2a2a2a);for(int i=0;i<12;i++){float y=230+i*i*1.8f;c.drawRect(0,y,640,y+1+i*.6f,p);}  // furrows widening toward the viewer
+        long t=SystemClock.elapsedRealtime();Bitmap d=MlDepth.estimate(app,b);t=SystemClock.elapsedRealtime()-t;
+        check(d.getWidth()==518,"depth width "+d.getWidth());
+        float top=0,bottom=0;for(int x=0;x<d.getWidth();x++){top+=d.getPixel(x,d.getHeight()/10)&255;bottom+=d.getPixel(x,d.getHeight()*9/10)&255;}
+        check(bottom>top,"ground "+bottom/d.getWidth()+" should be nearer than sky "+top/d.getWidth()+" ("+t+" ms)");
+        b.recycle();d.recycle();
+    }
     /** The transcoder cuts on the exact frame: a clip whose frame i is grey level 5*i, keyframes 2 s apart, cut at
      *  1.0 s must start on frame 30 (grey 150), where a keyframe-based copy would start on frame 0. */
     public void testVideoTrimIsFrameExact()throws Exception{

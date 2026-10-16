@@ -10,8 +10,8 @@ android {
         applicationId 'dev.solotilt.personal'
         minSdk 30
         targetSdk 36
-        versionCode 6
-        versionName '2.0-beta6'
+        versionCode 7
+        versionName '2.1-beta1'
     }
     signingConfigs {
         local {
@@ -25,15 +25,23 @@ android {
         debug { if (keystore.exists()) signingConfig signingConfigs.local }
         release {
             minifyEnabled false
+            // Phones only: the depth model's native runtime for other ABIs would add ~20 MB. Debug keeps x86_64 for the emulator.
+            ndk { abiFilters 'arm64-v8a' }
             if (keystore.exists()) signingConfig signingConfigs.local
         }
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     testOptions { unitTests.returnDefaultValues = true }
     lint { abortOnError false }
+    // The depth model is read straight from the APK; compressing 27 MB of int8 weights gains little and slows the read.
+    androidResources { noCompress 'onnx' }
+    // ONNX Runtime's 33 MB native library compresses to about a third; it is unpacked once at install.
+    packaging { jniLibs { useLegacyPackaging true } }
 }
 
 dependencies {
+    // Spatial Scene depth (MlDepth): ONNX Runtime, MIT licence.
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.30.0'
     testImplementation 'junit:junit:4.13.2'
     // Android supplies org.json at runtime; host-side tests need a real implementation.
     testImplementation 'org.json:json:20250517'
