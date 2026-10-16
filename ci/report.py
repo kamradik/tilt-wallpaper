@@ -17,6 +17,8 @@ if os.path.exists('logcat.txt'):
         if 'FATAL EXCEPTION' in l: note("App crash (logcat)","\n".join(lines[i:i+30]))
     errs=[l for l in lines if re.match(r'[EW]/(Solo|TestRunner|SmokeRunner|AndroidRuntime|Tilt)',l)]
     if errs: note("App errors (logcat)","\n".join(errs[-30:]),"warning")
+    frames=[l for l in lines if 'SoloFrames' in l]
+    if frames: note("Frame pacing (emulator)","\n".join(frames[-5:]),"notice")
     # The app's lifecycle as the system saw it: starts, deaths, ANRs and low-memory kills.
     life=[l for l in lines if ('dev.solotilt' in l and re.search(r'ActivityManager|ActivityTaskManager|Displayed|died|Kill|START',l)) or re.search(r'ANR in|lowmemorykiller|am_kill',l)]
     if life: note("App lifecycle (logcat)","\n".join(life[-40:]),"warning")

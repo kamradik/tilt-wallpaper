@@ -36,6 +36,7 @@ public final class PresetsActivity extends Activity {
         edit=capsule(this,"",false);edit.setOnClickListener(v->{editing=!editing;build();});nav.addView(edit,new LinearLayout.LayoutParams(-2,dp(44)));
         ImageView add=circle(this,Glyph.PLUS,tr("Сохранить текущий экран","Save the current screen"));add.setOnClickListener(v->saveCurrent());
         LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(dp(44),dp(44));ap.leftMargin=dp(10);nav.addView(add,ap);
+        largeTitle(scroll,nav,list,tr("Пресеты","Presets"));
         root.setOnApplyWindowInsetsListener((v,i)->{Insets bars=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
             nav.setPadding(dp(16)+bars.left,bars.top+dp(8),dp(16)+bars.right,dp(8));list.setPadding(dp(16)+bars.left,bars.top+dp(64),dp(16)+bars.right,bars.bottom+dp(32));return i;});
         build();

@@ -104,6 +104,9 @@ final class Ios {
         final View host;final Apply apply;double omega,zeta;float value,velocity,target;long frame;boolean running;Runnable done;
         Fling(View host,Apply apply){this.host=host;this.apply=apply;spring(.5,.86);}
         Fling spring(double response,double damping){omega=2*Math.PI/response;zeta=damping;return this;}
+        /** How close to the target counts as arrived, in the value's units: half a pixel by default. */
+        float precision=.5f;
+        Fling precision(float p){precision=p;return this;}
         /** Moves toward target starting at from with velocity (units per second). */
         void to(float from,float velocity,float target,Runnable done){
             value=from;this.velocity=velocity;this.target=target;this.done=done;
@@ -117,8 +120,7 @@ final class Ios {
             if(!running)return;long now=AnimationUtils.currentAnimationTimeMillis();float dt=frame==0?1/60f:Math.min(.034f,(now-frame)/1000f);frame=now;
             double k=omega*omega,c=2*zeta*omega;float h=dt/4;
             for(int i=0;i<4;i++){velocity+=(float)(-k*(value-target)-c*velocity)*h;value+=velocity*h;}
-            float scale=Math.max(1,Math.abs(target));
-            if(Math.abs(value-target)<.0015f*scale+.25f&&Math.abs(velocity)<.03f*scale+4){value=target;velocity=0;running=false;}
+            if(Math.abs(value-target)<precision&&Math.abs(velocity)<precision*12){value=target;velocity=0;running=false;}
             apply.value(value);
             if(running)host.postOnAnimation(this);else if(done!=null)done.run();
         }};
@@ -223,7 +225,8 @@ final class Ios {
         if(Math.abs(deg-lightTarget)<.75f)return;lightTime=now;lightTarget=deg;lightPending=true;MAIN.post(SHINE);
     }
     /** Redraws visible glass that refracts the backdrop (after a scroll, a new photo or new light). UI thread. */
-    static void refract(){for(Shape s:GLASS)if(s.host()!=null&&((View)s.getCallback()).isShown())s.invalidateSelf();}
+    static void refract(){for(Shape s:GLASS)if(s.host()!=null&&((View)s.getCallback()).isShown())s.invalidateSelf();
+        for(Sheen s:SHEENS)if(s.getCallback() instanceof View&&((View)s.getCallback()).isShown())s.invalidateSelf();}
 
     /** About 48 px on the short side and three box passes each way: close to a Gaussian, a few ms on any phone. */
     static Bitmap blur(Bitmap src){
@@ -424,6 +427,81 @@ final class Ios {
         }
     }
 
+    /**
+     * UINavigationBar with a large title: the list's first child (the big title) scrolls away under the bar, and
+     * as it goes the bar fills in and a small centred copy of the title fades in. The bar's own spacer (a weighted
+     * empty view after the back button) becomes the title; otherwise one is added, balanced against the back button.
+     */
+    static void largeTitle(ScrollView scroll,LinearLayout nav,LinearLayout list,String title){
+        Context c=nav.getContext();TextView small=text(c,title,17,SEMIBOLD,LABEL);small.setGravity(Gravity.CENTER);small.setMaxLines(1);small.setAlpha(0);
+        small.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);  // the large title already reads it
+        View spacer=nav.getChildCount()>1?nav.getChildAt(1):null;
+        if(spacer!=null&&!(spacer instanceof TextView)&&spacer.getLayoutParams() instanceof LinearLayout.LayoutParams&&((LinearLayout.LayoutParams)spacer.getLayoutParams()).weight>0)nav.removeViewAt(1);
+        else nav.addView(new View(c),new LinearLayout.LayoutParams(dp(c,44),1));
+        nav.addView(small,Math.min(1,nav.getChildCount()),new LinearLayout.LayoutParams(0,-2,1));
+        ColorDrawable bar=new ColorDrawable(0xf00b0b0d);bar.setAlpha(0);nav.setBackground(bar);
+        scroll.setOnScrollChangeListener((v,x,y,ox,oy)->{
+            View big=list.getChildCount()>0?list.getChildAt(0):null;if(big==null)return;
+            float p=clamp((y+nav.getHeight()-big.getTop()-big.getHeight()*.2f)/Math.max(1,big.getHeight()*.8f),0,1);
+            big.setAlpha(1-p);bar.setAlpha(Math.round(255*p));small.setAlpha(clamp((p-.55f)/.45f,0,1));small.setTranslationY((1-small.getAlpha())*px(c,6));
+            refract();
+        });
+    }
+    /**
+     * A numeric readout whose changed digits roll, like a mechanical counter: up when the value grows, down when it
+     * shrinks; unchanged digits stay put. Tabular figures, right-aligned. emphasis() tints it while its slider is held.
+     */
+    static final class Rolling extends View {
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);String shown="",previous="";float t=1,emphasis;int direction=1;ValueAnimator roll,grow;final int color;
+        Rolling(Context c,float sp,int color){
+            super(c);this.color=color;paint.setTypeface(font(REGULAR));paint.setTextSize(px(c,sp)*Math.min(1.3f,c.getResources().getConfiguration().fontScale));paint.setFontFeatureSettings("tnum");paint.setTextAlign(Paint.Align.RIGHT);
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);  // the slider speaks its own value
+        }
+        @Override protected void onMeasure(int w,int h){Paint.FontMetrics m=paint.getFontMetrics();setMeasuredDimension(Math.round(paint.measureText("100%")+px(getContext(),2)),Math.round(m.descent-m.ascent));}
+        void set(String value,int dir){
+            if(value.equals(shown))return;previous=shown;shown=value;direction=dir;
+            if(still()||previous.isEmpty()){t=1;invalidate();return;}
+            roll=Ios.animate(roll,0,1,SNAPPY,a->{t=(float)a.getAnimatedValue();invalidate();});
+        }
+        void emphasis(boolean on){grow=Ios.animate(grow,emphasis,on?1:0,SNAPPY,a->{emphasis=(float)a.getAnimatedValue();invalidate();});}
+        @Override protected void onDraw(Canvas c){
+            Paint.FontMetrics m=paint.getFontMetrics();float base=-m.ascent,h=getHeight(),x=getWidth(),k=Math.min(1,Math.max(0,t));
+            paint.setColor(mix(color,accent,emphasis));c.save();c.clipRect(0,0,getWidth(),h);
+            float s=1+.08f*emphasis;c.scale(s,s,getWidth(),h/2);
+            int n=Math.max(shown.length(),previous.length());
+            for(int i=0;i<n;i++){
+                char now=i<shown.length()?shown.charAt(shown.length()-1-i):' ',was=i<previous.length()?previous.charAt(previous.length()-1-i):' ';
+                String a=String.valueOf(now),b=String.valueOf(was);float wch=paint.measureText(now==' '?b:a);
+                if(now==was||k>=1){paint.setAlpha(255);if(now!=' ')c.drawText(a,x,base,paint);}
+                else{
+                    // The old digit leaves the way the value moved, the new one arrives from the other side.
+                    float off=h*.7f*direction;
+                    paint.setAlpha(Math.round(255*(1-k)));if(was!=' ')c.drawText(b,x,base-off*k,paint);
+                    paint.setAlpha(Math.round(255*k));if(now!=' ')c.drawText(a,x,base+off*(1-k),paint);
+                }
+                x-=wch;
+            }
+            c.restore();
+        }
+    }
+
+    /** A soft diagonal glint on an effect preview that slides with the tilt (the same light as the glass edges). */
+    static final class Sheen extends Drawable {
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);final Matrix m=new Matrix();Shader shader;
+        Sheen(){SHEENS.add(this);}
+        @Override protected void onBoundsChange(Rect b){shader=new LinearGradient(0,0,1,0,new int[]{0x00ffffff,0x2effffff,0x00ffffff},new float[]{.35f,.5f,.65f},Shader.TileMode.CLAMP);paint.setShader(shader);}
+        @Override public void draw(Canvas c){
+            Rect b=getBounds();if(b.isEmpty()||reduce)return;float w=b.width(),h=b.height(),span=(float)Math.hypot(w,h);
+            // The light's angle picks where across the card the glint sits.
+            float t=(float)((lightDeg+180)/360.0);t=t-(float)Math.floor(t);float pos=(t*2.2f-.6f)*span;
+            m.setScale(span,span);m.postRotate(35);m.postTranslate(b.left+pos-span*.5f,b.top);shader.setLocalMatrix(m);c.drawRect(b,paint);
+        }
+        @Override public void setAlpha(int a){paint.setAlpha(a);}
+        @Override public void setColorFilter(ColorFilter f){paint.setColorFilter(f);}
+        @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+    }
+    static final Set<Sheen> SHEENS=Collections.newSetFromMap(new WeakHashMap<>());
+
     static View hairline(Context c){View v=new View(c);v.setBackgroundColor(SEPARATOR);return v;}
 
     /** A one-value spring animator on the given curve; under Reduce Motion it eases without overshoot. */
@@ -461,7 +539,7 @@ final class Ios {
     /** UISlider with a bipolar fill from zero and haptic detents at 0 and the ends; the thumb swells into a lens while held. */
     static final class Slider extends View {
         interface Listener{void changed(int value);}
-        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);final RectF r=new RectF();final int min,max;int value;float held;Listener listener;ValueAnimator hold;
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);final RectF r=new RectF();final int min,max;int value;float held;Listener listener;ValueAnimator hold;Rolling readout;
         /** Spoken after the value ("%" for the unit sliders); the drawn readout is separate. */
         String unit="";
         Slider(Context c,int min,int max){super(c);this.min=min;this.max=max;setFocusable(true);reach(this);}
@@ -477,7 +555,7 @@ final class Ios {
                 else if(Math.floorDiv(next-min,tenth)!=Math.floorDiv(value-min,tenth))haptic(this,TICK);}
             value=next;invalidate();setStateDescription(value+unit);if(listener!=null)listener.changed(value);
         }
-        void grip(boolean on){hold=Ios.animate(hold,held,on?1:0,on?SNAPPY:BOUNCY,a->{held=(float)a.getAnimatedValue();invalidate();});}
+        void grip(boolean on){hold=Ios.animate(hold,held,on?1:0,on?SNAPPY:BOUNCY,a->{held=(float)a.getAnimatedValue();invalidate();});if(readout!=null)readout.emphasis(on);}
         @Override public boolean onTouchEvent(MotionEvent e){
             int action=e.getActionMasked();if(action==MotionEvent.ACTION_DOWN){getParent().requestDisallowInterceptTouchEvent(true);grip(true);}
             if(action==MotionEvent.ACTION_DOWN||action==MotionEvent.ACTION_MOVE){float t=thumb()*1.3f;set(Math.round(min+(max-min)*(e.getX()-t)/Math.max(1,getWidth()-2*t)),true);return true;}
@@ -649,9 +727,9 @@ final class Ios {
         separate(c,card);
         LinearLayout box=new LinearLayout(c);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(c,16),dp(c,10),dp(c,14),dp(c,2));card.addView(box);
         LinearLayout head=new LinearLayout(c);box.addView(head);head.addView(text(c,title,15,REGULAR,LABEL),new LinearLayout.LayoutParams(0,-2,1));
-        TextView number=text(c,Math.round(value*100)+"%",15,REGULAR,SECONDARY);number.setFontFeatureSettings("tnum");head.addView(number);
-        Slider s=new Slider(c,0,100);s.value=Math.round(value*100);s.unit="%";s.setStateDescription(s.value+"%");s.setContentDescription(title);box.addView(s);
-        s.listener=v->{number.setText(v+"%");listener.changed(v);};return s;
+        Rolling number=new Rolling(c,15,SECONDARY);number.set(Math.round(value*100)+"%",1);head.addView(number);
+        Slider s=new Slider(c,0,100);s.value=Math.round(value*100);s.unit="%";s.setStateDescription(s.value+"%");s.setContentDescription(title);box.addView(s);s.readout=number;
+        int[] last={s.value};s.listener=v->{number.set(v+"%",v>=last[0]?1:-1);last[0]=v;listener.changed(v);};return s;
     }
 
     private Ios(){}

@@ -34,6 +34,7 @@ public final class DebugActivity extends Activity {
         list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);scroll.addView(list);
         LinearLayout nav=new LinearLayout(this);nav.setGravity(Gravity.CENTER_VERTICAL);root.addView(nav,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
         ImageView back=circle(this,Glyph.BACK,tr("Назад","Back"));back.setOnClickListener(v->finish());nav.addView(back,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        largeTitle(scroll,nav,list,tr("Диагностика","Diagnostics"));
         root.setOnApplyWindowInsetsListener((v,i)->{Insets bars=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
             nav.setPadding(dp(16)+bars.left,bars.top+dp(8),dp(16)+bars.right,dp(8));list.setPadding(dp(16)+bars.left,bars.top+dp(64),dp(16)+bars.right,bars.bottom+dp(32));return i;});
         build();

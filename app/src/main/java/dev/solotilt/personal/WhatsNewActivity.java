@@ -15,9 +15,9 @@ import static dev.solotilt.personal.Ios.*;
  */
 public final class WhatsNewActivity extends Activity {
     /** Bump when the list below changes enough to show it again. */
-    static final int NEWS=1;
+    static final int NEWS=2;
     static final String KEY="news";
-    static final int NETWORK=0,SKY=1,CINEMA=2,LAYERS=3,LOOKS=4,WIDGET=5;
+    static final int NETWORK=0,SKY=1,CINEMA=2,LAYERS=3,LOOKS=4,WIDGET=5,MOTION=6;
 
     /** Whether to show the list now: an existing user who has not seen this revision. New users only get it marked seen. */
     static boolean due(Context c){
@@ -40,6 +40,7 @@ public final class WhatsNewActivity extends Activity {
         LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);scroll.addView(column,new ScrollView.LayoutParams(-1,-2));
         TextView title=text(this,tr("Что нового\nв Parallaxia","What’s New\nin Parallaxia"),34,BOLD,LABEL);title.setGravity(Gravity.CENTER);title.setPadding(0,dp(36),0,dp(30));column.addView(title);
         String[][] items={
+            {tr("Живой интерфейс","A living interface"),tr("Цвет из твоих обоев, волна при смене эффекта, сканирование глубины и шапка, которая парит над фото при наклоне.","Colour from your wallpaper, a ripple when the effect changes, a depth scan and a header that floats over the photo as you tilt.")},
             {tr("Нейросеть глубины","Depth network"),tr("Объект отделяется от фона, а фон за ним дорисовывается. Всё считается на телефоне.","The subject separates from the background, and the background behind it is painted in. All on the phone.")},
             {tr("Живое небо","Living Sky"),tr("Небо на фото оживает: облака плывут, садится солнце, ночью горят звёзды.","The sky in your photo comes alive: clouds drift, the sun sets, stars come out at night.")},
             {tr("Синемаграф и живые фото","Cinemagraphs and motion photos"),tr("Закрась, что должно двигаться в видео, остальное замрёт. Живые фото Samsung становятся видеообоями.","Paint what should move in a video and the rest freezes. Samsung motion photos become video wallpapers.")},
@@ -47,7 +48,7 @@ public final class WhatsNewActivity extends Activity {
             {tr("Образы","Looks"),tr("Десять готовых образов, свои сохранения и обмен образами по QR-коду.","Ten ready-made looks, your own saves and sharing looks as QR codes.")},
             {tr("Виджет и иконки","Widget and icons"),tr("Смена образа с главного экрана и четыре иконки приложения на выбор.","Switch looks from the home screen and pick one of four app icons.")},
         };
-        int[] kinds={NETWORK,SKY,CINEMA,LAYERS,LOOKS,WIDGET};
+        int[] kinds={MOTION,NETWORK,SKY,CINEMA,LAYERS,LOOKS,WIDGET};
         for(int i=0;i<items.length;i++){
             LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(32),dp(10),dp(32),dp(10));
             row.addView(new Tile(this,kinds[i]),new LinearLayout.LayoutParams(dp(48),dp(48)));
@@ -72,7 +73,7 @@ public final class WhatsNewActivity extends Activity {
     /** A rounded gradient tile with a simple white symbol for one feature. */
     static final class Tile extends View {
         final int kind;final Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG),ink=new Paint(Paint.ANTI_ALIAS_FLAG);final RectF r=new RectF();final Path path=new Path();
-        static final int[][] COLORS={{0xff5e5ce6,0xffbf5af2},{0xff0a84ff,0xff64d2ff},{0xffff9f0a,0xffff375f},{0xff30d158,0xff00c7be},{0xffff375f,0xffbf5af2},{0xff8e8e93,0xff48484a}};
+        static final int[][] COLORS={{0xff5e5ce6,0xffbf5af2},{0xff0a84ff,0xff64d2ff},{0xffff9f0a,0xffff375f},{0xff30d158,0xff00c7be},{0xffff375f,0xffbf5af2},{0xff8e8e93,0xff48484a},{0xff64d2ff,0xff5e5ce6}};
         Tile(Context c,int kind){super(c);this.kind=kind;ink.setColor(Color.WHITE);ink.setStrokeCap(Paint.Cap.ROUND);ink.setStrokeJoin(Paint.Join.ROUND);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
         @Override protected void onDraw(Canvas c){
             float w=getWidth(),h=getHeight(),s=Math.min(w,h),u=s/24f;
@@ -100,6 +101,10 @@ public final class WhatsNewActivity extends Activity {
                 case LOOKS->{ // a QR-like grid
                     ink.setStyle(Paint.Style.FILL);
                     for(int y=0;y<3;y++)for(int x=0;x<3;x++){if((x+y)%2==1&&!(x==1&&y==1))continue;r.set((6+x*4.4f)*u,(6+y*4.4f)*u,(9.6f+x*4.4f)*u,(9.6f+y*4.4f)*u);c.drawRoundRect(r,.8f*u,.8f*u,ink);}
+                }
+                case MOTION->{ // a ripple: a dot and two rings spreading from it
+                    ink.setStyle(Paint.Style.FILL);c.drawCircle(12*u,12*u,2.4f*u,ink);ink.setStyle(Paint.Style.STROKE);
+                    ink.setAlpha(220);c.drawCircle(12*u,12*u,5.6f*u,ink);ink.setAlpha(120);c.drawCircle(12*u,12*u,8.8f*u,ink);ink.setAlpha(255);
                 }
                 default->{ // a 2x2 widget grid
                     ink.setStyle(Paint.Style.FILL);

@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.*;
+import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.*;
 import java.util.regex.Pattern;
@@ -156,6 +157,33 @@ public final class SmokeTest {
         }
         out.delete();for(android.net.Uri u:uris)new File(u.getPath()).delete();
     }
+    /** The signature overlays and the rolling readout draw without errors; the check mark really is drawn. */
+    public void testMomentsDraw()throws Exception{
+        Throwable[] error={null};boolean[] checked={false};
+        instrumentation.runOnMainSync(()->{try{
+            int w=1080,h=2200;Bitmap b=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);android.graphics.Canvas c=new android.graphics.Canvas(b);
+            Moments.Done done=new Moments.Done(app);done.measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(h,View.MeasureSpec.EXACTLY));done.layout(0,0,w,h);
+            done.progress=.6f;b.eraseColor(0xff000000);done.draw(c);
+            // The check's corner sits a little below and left of the disc's centre.
+            float R=46*app.getResources().getDisplayMetrics().density;int px=b.getPixel(Math.round(w/2f-R*.1f),Math.round(h*.42f+R*.3f));checked[0]=(px&0xff)>200;
+            for(View v:new View[]{new Moments.Scan(app,"Scan"),new Moments.Intro(app,null)}){v.measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(h,View.MeasureSpec.EXACTLY));v.layout(0,0,w,h);v.draw(c);}
+            Ios.Rolling r=new Ios.Rolling(app,15,0xffffffff);r.set("42%",1);r.set("43%",1);r.t=.5f;r.measure(0,0);r.layout(0,0,r.getMeasuredWidth(),r.getMeasuredHeight());r.draw(c);
+            b.recycle();
+        }catch(Throwable t){error[0]=t;}});
+        if(error[0]!=null)throw new AssertionError("an overlay failed to draw",error[0]);
+        check(checked[0],"the check mark should be drawn in white");
+    }
+    /** Frame pacing of the hub on the emulator (software GPU, so only a trend): logged for the CI report, not judged. */
+    public void testHubFramePacing()throws Exception{
+        shell("dumpsys gfxinfo "+PKG+" reset");
+        click(find(any("Все эффекты","All effects")));pause(900);
+        shell("input swipe 540 1700 540 700 250");pause(700);shell("input swipe 540 700 540 1700 250");pause(700);back();pause(900);
+        String info=shellOut("dumpsys gfxinfo "+PKG);
+        StringBuilder sum=new StringBuilder();
+        for(String line:info.split("\n"))if(line.matches("\\s*(Total frames rendered|Janky frames|50th percentile|90th percentile|99th percentile).*"))sum.append(line.trim()).append("; ");
+        android.util.Log.i("SoloFrames","Hub, catalog open/scroll/close: "+sum);
+        check(sum.indexOf("Total frames rendered")>=0,"gfxinfo should report frames");
+    }
     /** An updated install shows What's New once; Continue closes it for good. */
     public void testWhatsNewOnce()throws Exception{
         ImageStore.prefs(app).edit().putInt(WhatsNewActivity.KEY,0).commit();launch();
@@ -272,6 +300,7 @@ public final class SmokeTest {
     static void check(boolean ok,String what){if(!ok)throw new AssertionError(what);}
     static void pause(long ms){SystemClock.sleep(ms);}
     void back(){ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);pause(500);}
+    String shellOut(String command)throws IOException{try(ParcelFileDescriptor out=ui.executeShellCommand(command);InputStream in=new ParcelFileDescriptor.AutoCloseInputStream(out)){java.io.ByteArrayOutputStream o=new java.io.ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1)o.write(b,0,n);return o.toString("UTF-8");}}
     void shell(String command)throws IOException{try(ParcelFileDescriptor out=ui.executeShellCommand(command);InputStream in=new ParcelFileDescriptor.AutoCloseInputStream(out)){byte[] b=new byte[1024];while(in.read(b)!=-1){}}}
     void shot(String name)throws IOException{
         try{ui.waitForIdle(300,3000);}catch(Exception ignored){}pause(400);

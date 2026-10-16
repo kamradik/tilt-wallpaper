@@ -231,7 +231,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setClickable(true);card.setFocusable(true);card.setContentDescription(e.name(config.en()));
         FrameLayout box=new FrameLayout(this);float radius=px(this,large?18:14);
         ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);image.setBackground(new Shape(0xff2c2c2e,radius));image.setOutlineProvider(ViewOutlineProvider.BACKGROUND);image.setClipToOutline(true);
-        Bitmap b=previews.get(e.id);if(b!=null)image.setImageBitmap(b);image.setTag("preview:"+e.id);
+        Bitmap b=previews.get(e.id);if(b!=null)image.setImageBitmap(b);image.setTag("preview:"+e.id);image.setForeground(new Sheen());
         box.addView(image,new FrameLayout.LayoutParams(-1,-1));
         boolean selected=e.id.equals(profile().effect)&&editable();
         if(selected)ring(box,radius,!large&&!e.id.equals(ringShown));
@@ -239,7 +239,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         card.addView(box,new LinearLayout.LayoutParams(-1,large?Math.round(width*1.45f):dp(86)));
         TextView name=text(this,e.name(config.en()),large?15:11,large?SEMIBOLD:MEDIUM,selected?LABEL:0xd9ffffff);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);name.setPadding(dp(2),dp(5),dp(2),0);if(!large)name.setGravity(Gravity.CENTER);card.addView(name);
         if(large){TextView cat=text(this,e.category(config.en()),13,REGULAR,SECONDARY);cat.setPadding(dp(2),dp(1),0,0);card.addView(cat);}
-        card.setOnClickListener(v->{tick(v);if(large&&!selected&&editable())ring(box,radius,true);revealFrom(v);selectEffect(e.id);if(catalog!=null&&catalog.getParent()!=null)closeCatalog();});
+        card.setOnClickListener(v->{tick(v);if(large&&!selected&&editable())ring(box,radius,true);if(large&&editable())expand(image,radius);else revealFrom(v);selectEffect(e.id);if(catalog!=null&&catalog.getParent()!=null)closeCatalog();});
         return pressable(card);
     }
     /** Selection ring; a newly selected card pops its preview on a spring while the ring fades in around it. */
@@ -348,6 +348,26 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         if(!editable())return;profile().effect=id;config.used(id);persist();refresh();
         Effects.Effect e=Effects.get(id);
         swap(status,e.has(Effects.DEPTH)?tr("Глубина готовится по фото…","Estimating depth from your photo…"):e.has(Effects.WIPE)?tr("Проведи пальцем по фото","Swipe across the photo"):e.has(Effects.TOUCH)?tr("Коснись фото","Touch the photo"):tr("Наклони телефон","Tilt your phone"));
+    }
+    /**
+     * Shared-element hand-off from the catalog: a copy of the card's preview leaves the card, grows to fill the
+     * screen with its corners straightening, then dissolves into the live wallpaper, which has switched beneath it.
+     */
+    void expand(ImageView from,float radius){
+        Drawable d=from.getDrawable();if(d==null||still())return;
+        int[] at=new int[2],base=new int[2];from.getLocationInWindow(at);root.getLocationInWindow(base);
+        float l0=at[0]-base[0],t0=at[1]-base[1],r0=l0+from.getWidth(),b0=t0+from.getHeight(),W=root.getWidth(),H=root.getHeight();
+        ImageView fly=new ImageView(this);fly.setImageDrawable(d.getConstantState()!=null?d.getConstantState().newDrawable():d);fly.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        float[] corner={radius};fly.setOutlineProvider(new ViewOutlineProvider(){public void getOutline(View v,Outline o){o.setRoundRect(0,0,v.getWidth(),v.getHeight(),corner[0]);}});fly.setClipToOutline(true);
+        fly.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);root.addView(fly,new FrameLayout.LayoutParams((int)(r0-l0),(int)(b0-t0)));
+        fly.setX(l0);fly.setY(t0);fly.setPivotX(0);fly.setPivotY(0);
+        float sx=W/(r0-l0),sy=H/(b0-t0);
+        Fling grow=new Fling(root,p->{
+            // Grows by scale (no relayout per frame); the corner shrinks in screen terms as it reaches the edges.
+            fly.setX(l0*(1-p));fly.setY(t0*(1-p));fly.setScaleX(1+(sx-1)*p);fly.setScaleY(1+(sy-1)*p);
+            corner[0]=radius*(1-Math.min(1,p))/Math.max(1,1+(sx-1)*p);fly.invalidateOutline();
+        }).spring(.42,.9).precision(.002f);
+        grow.to(0,0,1,()->fly.animate().alpha(0).setDuration(260).withEndAction(()->root.removeView(fly)).start());
     }
     /** The next effect change ripples out from the middle of this view (where the finger is). */
     void revealFrom(View v){int[] at=new int[2];v.getLocationInWindow(at);float w=Math.max(1,root.getWidth()),h=Math.max(1,root.getHeight());renderer.revealFrom(clamp((at[0]+v.getWidth()/2f)/w,0,1),clamp((at[1]+v.getHeight()/2f)/h,0,1));}
