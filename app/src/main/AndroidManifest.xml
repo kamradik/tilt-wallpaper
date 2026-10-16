@@ -31,11 +31,26 @@
       </intent-filter>
     </activity>
     <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="portrait">
-      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
       <!-- Long press on the Quick Settings tile opens the app. -->
       <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES"/></intent-filter>
-      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
     </activity>
+    <!-- Launcher entries, one per app icon (AppIcons); exactly one is enabled, Dusk by default. -->
+    <activity-alias android:name=".IconDusk" android:targetActivity=".MainActivity" android:icon="@drawable/icon" android:enabled="true" android:exported="true">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
+    </activity-alias>
+    <activity-alias android:name=".IconOcean" android:targetActivity=".MainActivity" android:icon="@drawable/icon_ocean" android:enabled="false" android:exported="true">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
+    </activity-alias>
+    <activity-alias android:name=".IconSunset" android:targetActivity=".MainActivity" android:icon="@drawable/icon_sunset" android:enabled="false" android:exported="true">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
+    </activity-alias>
+    <activity-alias android:name=".IconGraphite" android:targetActivity=".MainActivity" android:icon="@drawable/icon_graphite" android:enabled="false" android:exported="true">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
+    </activity-alias>
     <activity android:name=".DebugActivity" android:exported="false" android:screenOrientation="portrait"/>
     <!-- Random-effect shortcut: no UI, finishes in onCreate. -->
     <activity android:name=".ShortcutActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay" android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity=""/>

@@ -64,6 +64,11 @@ public final class SettingsActivity extends Activity {
         Segmented lang=new Segmented(this,"Русский","English");lang.select(config.en()?1:0,false);
         lang.listener=i->{config.language=i==1?"en":"ru";save();main.postDelayed(this::recreate,250);};row(this,language,null,lang);
 
+        LinearLayout icon=group(this,list,tr("Иконка приложения","App icon"));
+        Segmented icons=new Segmented(this,config.en()?AppIcons.EN:AppIcons.RU);icons.select(AppIcons.current(this),false);
+        icons.listener=i->{try{AppIcons.set(this,i);}catch(RuntimeException e){android.util.Log.w("SoloIcons","Icon switch failed",e);}};row(this,icon,null,icons);
+        footer(this,list,tr("Лаунчер может обновить иконку через несколько секунд.","The launcher may take a few seconds to show the new icon."));
+
         LinearLayout about=group(this,list,tr("О приложении","About"));
         String version="";try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){}
         LinearLayout versionRow=row(this,about,tr("Версия","Version"),text(this,version,17,REGULAR,SECONDARY));
