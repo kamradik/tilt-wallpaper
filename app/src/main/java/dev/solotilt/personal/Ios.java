@@ -189,6 +189,43 @@ final class Ios {
         SHEEN_SHADER=new LinearGradient(-1,0,1,0,new int[]{0x2effffff,0x00ffffff,0x00ffffff,0x0fffffff},new float[]{0,.5f,.8f,1},Shader.TileMode.CLAMP),
         GLOW_SHADER=new RadialGradient(0,0,1,new int[]{0x73ffffff,0x29ffffff,0x00ffffff},new float[]{0,.45f,1},Shader.TileMode.CLAMP);
     static final Matrix SPEC_MATRIX=new Matrix(),GLOW_MATRIX=new Matrix();
+    /**
+     * Liquid Glass as a per-pixel shader (AGSL, Android 13+). The glass is a slab whose thickness follows the shape:
+     * flat in the middle, rounding off over the rim like the edge of a drop. Light through it bends by the slope of
+     * that surface, so the photo is magnified a little in the body and pulled in hard at the rim, with the three
+     * colours bent by slightly different amounts (dispersion). The rim brightens at grazing angles (Fresnel) and
+     * catches a highlight from the tilt-driven light and a weaker one opposite; the far side of the rim darkens a
+     * little. A finger bulges the glass under it; letting go sends a ripple through it.
+     */
+    static final String GLASS_AGSL=
+        "uniform shader image;"+
+        "uniform float2 origin;uniform float2 size;uniform float radius;uniform float rim;uniform float lens;"+
+        "uniform float2 light;uniform float scrim;uniform float4 tint;uniform float3 touch;uniform float2 ripple;uniform float alpha;"+
+        "float sdf(float2 p){float2 b=size*0.5;float r=min(radius,min(b.x,b.y));float2 q=abs(p)-b+r;return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;}"+
+        "half4 main(float2 xy){"+
+        "  float2 c=origin+size*0.5;float2 p=xy-c;float d=sdf(p);"+
+        "  float2 n=normalize(float2(sdf(p+float2(1,0))-sdf(p-float2(1,0)),sdf(p+float2(0,1))-sdf(p-float2(0,1)))+1e-5);"+
+        "  float t=clamp(-d/rim,0.0,1.0);float h=sqrt(1.0-(1.0-t)*(1.0-t));"+
+        // Body: a gentle magnification about the centre. Rim: samples pulled inward by the surface slope.
+        "  float bend=(1.0-h)*rim*0.9;float2 q=p/lens-n*bend;"+
+        // A finger presses a dimple of extra magnification; a released finger leaves a spreading ring.
+        "  float2 f=p-(touch.xy-c);float fd=length(f);float m=max(size.x,size.y);"+
+        "  q-=f*touch.z*0.10*exp(-fd*fd/(m*m*0.12));"+
+        "  if(ripple.y>0.0){float rr=ripple.x*m*1.2;float z=(fd-rr)/(m*0.07);float w=exp(-z*z)*ripple.y;q+=(fd>0.001?f/fd:float2(0))*w*m*0.035;}"+
+        "  float disp=(1.0-h)*rim*0.09;"+
+        "  half3 col=half3(image.eval(c+q+n*disp).r,image.eval(c+q).g,image.eval(c+q-n*disp).b);"+
+        "  col=mix(col,half3(0),half(scrim));col=mix(col,half3(tint.rgb),half(tint.a));"+
+        // Fresnel rim, the main highlight on the side facing the light, a faint bounce opposite, a soft inner shade.
+        "  float edge=pow(1.0-t,2.6);float facing=dot(n,light);"+
+        "  col+=half(edge*0.16);"+
+        "  col+=half(pow(max(facing,0.0),6.0)*pow(1.0-t,1.6)*0.75);"+
+        "  col+=half(pow(max(-facing,0.0),6.0)*pow(1.0-t,2.2)*0.22);"+
+        "  col*=half(1.0-0.14*pow(1.0-t,1.4)*max(-facing,0.0));"+
+        "  col+=half(touch.z*0.13*exp(-fd*fd/(m*m*0.06)));"+
+        "  return half4(col*half(alpha),half(alpha));"+
+        "}";
+    static boolean liquid(){return Build.VERSION.SDK_INT>=33;}
+
     static{
         ColorMatrix vivid=new ColorMatrix();vivid.setSaturation(1.45f);IMAGE.setColorFilter(new ColorMatrixColorFilter(vivid));
         // The refracted rim gathers more light than the body: more saturated and lifted.
@@ -228,14 +265,15 @@ final class Ios {
     static void refract(){for(Shape s:GLASS)if(s.host()!=null&&((View)s.getCallback()).isShown())s.invalidateSelf();
         for(Sheen s:SHEENS)if(s.getCallback() instanceof View&&((View)s.getCallback()).isShown())s.invalidateSelf();}
 
-    /** About 48 px on the short side and three box passes each way: close to a Gaussian, a few ms on any phone. */
+    /** About 48 px on the short side and three box passes each way: close to a Gaussian, a few ms on any phone.
+     *  The liquid glass refracts real detail, so there it keeps 140 px and blurs only lightly (frost, not fog). */
     static Bitmap blur(Bitmap src){
         Bitmap source=src.getConfig()==Bitmap.Config.HARDWARE?src.copy(Bitmap.Config.ARGB_8888,false):src;
-        float s=Math.min(1,48f/Math.max(1,Math.min(source.getWidth(),source.getHeight())));
+        float s=Math.min(1,(liquid()?140f:48f)/Math.max(1,Math.min(source.getWidth(),source.getHeight())));
         int w=Math.max(4,Math.round(source.getWidth()*s)),h=Math.max(4,Math.round(source.getHeight()*s));
         Bitmap small=Bitmap.createScaledBitmap(source,w,h,true);int[] a=new int[w*h],t=new int[w*h];small.getPixels(a,0,w,0,0,w,h);
         if(small!=src)small.recycle();if(source!=src&&source!=small)source.recycle();
-        for(int pass=0;pass<3;pass++){box(a,t,w,h,2,true);box(t,a,w,h,2,false);}
+        for(int pass=0;pass<(liquid()?2:3);pass++){box(a,t,w,h,liquid()?1:2,true);box(t,a,w,h,liquid()?1:2,false);}
         return Bitmap.createBitmap(a,w,h,Bitmap.Config.ARGB_8888);
     }
     static void box(int[] in,int[] out,int w,int h,int r,boolean horizontal){
@@ -259,7 +297,9 @@ final class Ios {
     static final class Shape extends Drawable {
         final Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG),stroke=new Paint(Paint.ANTI_ALIAS_FLAG),sheen=new Paint(Paint.ANTI_ALIAS_FLAG);
         final Path path=new Path(),inner=new Path();final RectF box=new RectF(),edge=new RectF();final Matrix place=new Matrix(),lens=new Matrix(),inverse=new Matrix();final float[] probe=new float[10];
-        final float radius;boolean glass;float legible=.18f,bloom,touchX,touchY;int color,strokeColor,alpha=255;ValueAnimator press;
+        final float radius;boolean glass;float legible=.18f,bloom,touchX,touchY,ripple=-1;int color,strokeColor,alpha=255;ValueAnimator press,wave;
+        // Liquid path: one runtime shader per surface (its uniforms are its own), rebuilt on a new backdrop.
+        Object runtime;Bitmap shaderFor;BitmapShader imageShader;final Paint liquidPaint=new Paint(Paint.ANTI_ALIAS_FLAG);final float[] lightDir=new float[2];
         Shape(int color,float radius){this.color=color;fill.setColor(color);this.radius=radius;stroke.setStyle(Paint.Style.STROKE);stroke.setStrokeWidth(0);}
         Shape stroke(float width,int color){stroke.setStrokeWidth(width);strokeColor=color;applyAlpha();return this;}
         Shape glass(float width){glass=true;stroke.setStrokeWidth(width);strokeColor=LABEL;applyAlpha();GLASS.add(this);return this;}
@@ -272,6 +312,9 @@ final class Ios {
             touchX=x;touchY=y;if(press!=null)press.cancel();
             press=ValueAnimator.ofFloat(bloom,down?1:0);press.setDuration(down?140:560);press.setInterpolator(new DecelerateInterpolator(down?1:1.6f));
             press.addUpdateListener(a->{bloom=(float)a.getAnimatedValue();invalidateSelf();});press.start();
+            // Letting go sends a ring through the glass from the finger.
+            if(!down&&liquid()&&!still()){if(wave!=null)wave.cancel();wave=ValueAnimator.ofFloat(0,1);wave.setDuration(720);wave.setInterpolator(new DecelerateInterpolator(1.3f));
+                wave.addUpdateListener(a->{ripple=(float)a.getAnimatedValue();invalidateSelf();});wave.addListener(new AnimatorListenerAdapter(){@Override public void onAnimationEnd(Animator x){ripple=-1;invalidateSelf();}});wave.start();}
         }
         void follow(float x,float y){touchX=x;touchY=y;if(bloom>0)invalidateSelf();}
         @Override protected void onBoundsChange(Rect b){
@@ -293,6 +336,7 @@ final class Ios {
             View host=host();
             if(host==null){c.drawPath(path,fill);if(glass)c.drawPath(path,sheen);glow(c);if(stroke.getStrokeWidth()>0)c.drawPath(path,stroke);return;}
             Bitmap b=backdrop;View root=backdropRoot.get();locate(host,root,b);float t=transmission(b),cx=box.centerX(),cy=box.centerY();
+            if(liquid()&&drawLiquid(c,b,t))return;
             int save=c.save();c.clipPath(path);
             lens.set(place);lens.postScale(LENS,LENS,cx,cy);c.drawBitmap(b,lens,IMAGE);SCRIM.setAlpha(Math.round(255*(1-t)*alpha/255f));c.drawPaint(SCRIM);
             // Refracted rim: the band near the edge samples the photo with a stronger lens, so content bends at the border.
@@ -304,6 +348,28 @@ final class Ios {
             SPEC.setStrokeWidth(w*5);SPEC.setAlpha(60*alpha/255);c.drawPath(path,SPEC);  // soft inner light, clipped to the body
             c.restoreToCount(save);
             SPEC.setStrokeWidth(w*1.2f);SPEC.setAlpha(alpha);c.drawPath(path,SPEC);
+        }
+        /** The AGSL glass (see GLASS_AGSL): the body in one pass, then the fine hairline on top. False if unavailable. */
+        boolean drawLiquid(Canvas c,Bitmap b,float t){
+            try{
+                android.graphics.RuntimeShader s=(android.graphics.RuntimeShader)runtime;
+                if(s==null){s=new android.graphics.RuntimeShader(GLASS_AGSL);runtime=s;}
+                // The backdrop's placement goes into the child shader's matrix, so eval() takes drawable coordinates;
+                // the child is set again on every draw, since the runtime shader keeps a snapshot of it.
+                if(shaderFor!=b||imageShader==null){imageShader=new BitmapShader(b,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP);shaderFor=b;liquidPaint.setShader(s);}
+                imageShader.setLocalMatrix(place);s.setInputShader("image",imageShader);
+                float min=Math.min(box.width(),box.height()),rad=radius<0?min/2:Math.min(radius*1.15f,min/2);
+                double a=Math.toRadians(lightDeg);lightDir[0]=(float)Math.cos(a);lightDir[1]=(float)Math.sin(a);
+                boolean frost=luminance(color)>.5f;float ta=Color.alpha(color)/255f*(frost?.4f:1f)*.55f;
+                s.setFloatUniform("origin",box.left,box.top);s.setFloatUniform("size",box.width(),box.height());s.setFloatUniform("radius",rad);
+                s.setFloatUniform("rim",Math.max(4,Math.min(min*.42f,18*Resources.getSystem().getDisplayMetrics().density)));s.setFloatUniform("lens",LENS);
+                s.setFloatUniform("light",lightDir[0],lightDir[1]);s.setFloatUniform("scrim",clamp(1-t,0,1));
+                s.setFloatUniform("tint",Color.red(color)/255f,Color.green(color)/255f,Color.blue(color)/255f,ta);
+                s.setFloatUniform("touch",touchX,touchY,bloom);s.setFloatUniform("ripple",Math.max(0,ripple),ripple<0?0:1-ripple);s.setFloatUniform("alpha",alpha/255f);
+                c.drawPath(path,liquidPaint);
+                if(stroke.getStrokeWidth()>0){stroke.setAlpha(Math.round(Color.alpha(strokeColor)*alpha/255f*.7f));c.drawPath(path,stroke);}
+                return true;
+            }catch(RuntimeException e){android.util.Log.w("SoloGlass","Liquid glass unavailable",e);runtime=null;return false;}
         }
         /** Bitmap-to-drawable matrix: the shader's cover-fit with crop and zoom, offset by the host's layout position.
          *  Transforms are ignored on purpose, so a moving or pressed surface carries its glass instead of re-recording. */
