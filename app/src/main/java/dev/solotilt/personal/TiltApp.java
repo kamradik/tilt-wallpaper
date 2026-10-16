@@ -4,5 +4,5 @@ import android.app.Application;
 
 /** Process entry: installs the offline crash log before any activity, service or wallpaper engine starts. */
 public final class TiltApp extends Application {
-    @Override public void onCreate(){super.onCreate();CrashLog.install(this);}
+    @Override public void onCreate(){super.onCreate();CrashLog.install(this);Accent.load(this);}
 }

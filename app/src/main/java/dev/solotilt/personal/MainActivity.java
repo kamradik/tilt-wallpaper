@@ -39,7 +39,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     String mediaSlot(){return config.separateLock&&WallpaperConfig.LOCK.equals(slot)?WallpaperConfig.LOCK:WallpaperConfig.HOME;}
 
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);config=WallpaperConfig.load(this);Ios.reduceMotion(config.reduceMotion);
+        super.onCreate(state);getWindow().setDecorFitsSystemWindows(false);config=WallpaperConfig.load(this);Ios.reduceMotion(config.reduceMotion);Accent.load(this);
         if(state!=null)slot=state.getString("slot",slot);
         renderer=new RenderLoop(this,code->runOnUiThread(()->showError(code)));renderer.mode(WallpaperConfig.LOCK.equals(slot)?RenderLoop.SHOW_LOCK:RenderLoop.SHOW_HOME);
         // Sensor thread: Ios.light coalesces to ~30 Hz and posts the glass redraw to the UI thread itself.
@@ -72,6 +72,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         curtain=new Curtain();root.addView(curtain,new FrameLayout.LayoutParams(-1,-1));
 
         header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setClipChildren(false);stage.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+        Ios.floatOver(header);  // the header drifts a few dp with the tilt, floating over the wallpaper
         LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setClipChildren(false);header.addView(bar);
         TextView appTitle=legible(text(this,"Parallaxia",34,BOLD,LABEL));bar.addView(appTitle,new LinearLayout.LayoutParams(0,-2,1));
         appTitle.setOnLongClickListener(v->{tick(v);openOnboarding();return true;});
@@ -106,7 +107,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         TextView all=capsule(this,tr("Все эффекты","All effects"),false);LinearLayout.LayoutParams allp=new LinearLayout.LayoutParams(-2,dp(38));allp.leftMargin=dp(8);titleRow.addView(all,allp);all.setOnClickListener(v->openCatalog());
         effectAbout=text(this,"",15,REGULAR,SECONDARY);effectAbout.setPadding(0,dp(4),0,dp(10));sheetBody.addView(effectAbout);
 
-        stripScroll=new HorizontalScrollView(this);stripScroll.setHorizontalScrollBarEnabled(false);stripScroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
+        stripScroll=new Carousel();stripScroll.setHorizontalScrollBarEnabled(false);stripScroll.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
         strip=new LinearLayout(this);stripScroll.addView(strip);sheetBody.addView(stripScroll,new LinearLayout.LayoutParams(-1,dp(116)));
 
         // Lock tab without its own wallpaper: one switch, the editing controls hidden.
@@ -177,16 +178,16 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             if(ImageStore.isVideo(this,mediaSlot())){Toggle scrub=new Toggle(this);scrub.setOn(ImageStore.isScrub(this,mediaSlot()),false);scrub.setContentDescription(tr("Перемотка наклоном","Tilt scrub"));
                 scrub.listener=on->{ImageStore.setScrub(this,mediaSlot(),on);renderer.reload();swap(status,on?tr("Наклоняй телефон, чтобы листать видео","Tilt to scrub through the video"):"");};row(this,card,tr("Перемотка наклоном","Tilt scrub"),scrub);
                 // Cinemagraph: paint the part of the clip that keeps moving; the rest holds the first frame.
-                boolean cine=ImageStore.hasCine(this,mediaSlot());TextView paint=text(this,cine?tr("Изменить","Edit"):tr("Нарисовать","Paint"),17,REGULAR,BLUE);paint.setClickable(true);
+                boolean cine=ImageStore.hasCine(this,mediaSlot());TextView paint=text(this,cine?tr("Изменить","Edit"):tr("Нарисовать","Paint"),17,REGULAR,accent);paint.setClickable(true);
                 paint.setOnClickListener(x->{startActivityForResult(CinemagraphActivity.intent(this,mediaSlot()),CINE);overridePendingTransition(R.anim.ios_push_in,R.anim.ios_push_out);});
                 row(this,card,tr("Синемаграф","Cinemagraph"),pressable(paint));}
-            if(e.has(Effects.DEPTH)){TextView importDepth=text(this,tr("Импорт карты","Import map"),17,REGULAR,BLUE);importDepth.setClickable(true);importDepth.setOnClickListener(x->pick(PICK_DEPTH));row(this,card,tr("Глубина","Depth"),pressable(importDepth));}
+            if(e.has(Effects.DEPTH)){TextView importDepth=text(this,tr("Импорт карты","Import map"),17,REGULAR,accent);importDepth.setClickable(true);importDepth.setOnClickListener(x->pick(PICK_DEPTH));row(this,card,tr("Глубина","Depth"),pressable(importDepth));}
             TextView reset=text(this,tr("Сбросить эффект","Reset effect"),17,REGULAR,0xffff453a);reset.setClickable(true);reset.setOnClickListener(x->{profile().reset(e.id);persist();refresh();});row(this,card,null,pressable(reset));
             if(e.has(Effects.DEPTH))footer(this,params,tr("Глубину по фото рассчитывает нейросеть Depth Anything прямо на телефоне, один раз на фото. Можно загрузить свою карту: белое — ближе, чёрное — дальше.","Depth is computed from your photo by the Depth Anything network, on the phone, once per photo. You can also import your own map: white is near, black is far."));
             // Second layer: weather, light or grain over the main effect, with its own sliders.
             Effects.Effect top=p.overlayEffect();
             LinearLayout layer=group(this,params,tr("Второй слой","Second layer"));
-            TextView choice=text(this,top==null?tr("Нет","None"):top.name(en),17,REGULAR,BLUE);choice.setClickable(true);choice.setOnClickListener(x->chooseLayer());
+            TextView choice=text(this,top==null?tr("Нет","None"):top.name(en),17,REGULAR,accent);choice.setClickable(true);choice.setOnClickListener(x->chooseLayer());
             row(this,layer,tr("Поверх эффекта","On top"),pressable(choice));
             if(top!=null){float[] lv=p.params(top.id);
                 unitSlider(this,layer,en?top.aEn:top.aRu,lv[0],x->{profile().params(top.id)[0]=x/100f;persist();});
@@ -385,8 +386,13 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     void mediaChanged(String message){renderer.reload();previewKey=null;refresh();swap(status,message);loadTileThumbnail();}
     void loadTileThumbnail(){String m=mediaSlot();int side=dp(74);View host=root;Context app=getApplicationContext();io.execute(()->{Bitmap b=null;try{b=ImageStore.thumbnail(app,m,side);}catch(Exception|OutOfMemoryError ignored){}final Bitmap t=b;
         // Glass refracts what the wallpaper shows: the saved photo, or the selected preset drawn small.
-        try{if(t!=null&&ImageStore.isCustom(app,m))Ios.backdrop(host,t);else{Bitmap preset=ImageStore.preset(ImageStore.presetIndex(app,m),side/720f);Ios.backdrop(host,preset);preset.recycle();}}catch(RuntimeException|OutOfMemoryError ignored){}
-        runOnUiThread(()->{if(!isDestroyed())tiles[0].setImage(t);});});}
+        boolean tinted=false;
+        try{if(t!=null&&ImageStore.isCustom(app,m)){Ios.backdrop(host,t);tinted=Accent.update(app,t);}else{Bitmap preset=ImageStore.preset(ImageStore.presetIndex(app,m),side/720f);Ios.backdrop(host,preset);tinted=Accent.update(app,preset);preset.recycle();}}catch(RuntimeException|OutOfMemoryError ignored){}
+        final boolean retint=tinted;
+        runOnUiThread(()->{if(isDestroyed())return;tiles[0].setImage(t);if(retint)retint();});});}
+    /** The wallpaper gave the interface a new tint: rebuild what holds it and redraw the switches and sliders. */
+    void retint(){refresh();rebuildFraming();root.invalidate();invalidateAll(root);}
+    static void invalidateAll(View v){v.invalidate();if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++)invalidateAll(((ViewGroup)v).getChildAt(i));}
     void install(){
         saveNow();Intent intent=new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,new ComponentName(this,TiltWallpaper.class));
         wasOurs=isOurs();
@@ -573,6 +579,38 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         @Override public boolean performClick(){return super.performClick();}
         /** Tucks the interface away, the sheet continuing at the speed it was flicked with. */
         void hideWith(float v){hidden=true;updateBack();spring(header,SMOOTH).alpha(0).translationY(-dp(24));release.spring(.4,.95).to(getTranslationY(),Math.max(0,v),getHeight()+dp(60),null);}
+    }
+    /**
+     * The effect strip as a carousel: a flick comes to rest with a card centred (the spring keeps the flick's speed),
+     * a tick marks each card passing the middle, and cards shrink a little away from it, so the strip reads as a
+     * curved row seen from its centre.
+     */
+    final class Carousel extends HorizontalScrollView {
+        final Fling snap=new Fling(this,v->scrollTo(Math.round(v),0));boolean flung;int centred=-1;
+        Carousel(){super(MainActivity.this);snap.spring(.5,.9);}
+        int step(){return dp(72)+dp(8);}
+        int snapped(float x){int max=Math.max(0,strip.getWidth()-getWidth()),half=(getWidth()-dp(72))/2;int i=Math.round((x+half)/step());return Math.max(0,Math.min(max,i*step()-half));}
+        @Override public void fling(int velocityX){
+            if(still()){super.fling(velocityX);return;}
+            flung=true;snap.to(getScrollX(),velocityX,snapped(Fling.projected(getScrollX(),velocityX*1.6f)),null);
+        }
+        @Override public boolean onTouchEvent(MotionEvent e){
+            int a=e.getActionMasked();if(a==MotionEvent.ACTION_DOWN){snap.cancel();flung=false;}
+            boolean r=super.onTouchEvent(e);
+            if((a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL)&&!flung&&!still())snap.to(getScrollX(),0,snapped(getScrollX()),null);
+            return r;
+        }
+        @Override protected void onScrollChanged(int l,int t,int ol,int ot){
+            super.onScrollChanged(l,t,ol,ot);shape();
+            int c=Math.round((l+(getWidth()-dp(72))/2f)/step());if(c!=centred){if(centred>=0)haptic(this,TICK);centred=c;}
+        }
+        @Override protected void onLayout(boolean changed,int l,int t,int r,int b){super.onLayout(changed,l,t,r,b);shape();}
+        /** Cards away from the middle shrink and dim slightly; only the visible ones are touched. */
+        void shape(){
+            if(still())return;float mid=getScrollX()+getWidth()/2f,w=Math.max(1,getWidth());
+            for(int i=0;i<strip.getChildCount();i++){View card=strip.getChildAt(i);float cx=card.getLeft()+card.getWidth()/2f,d=Math.abs(cx-mid)/w;
+                if(d>.75f)continue;View box=((ViewGroup)card).getChildAt(0);float s=1-Math.min(.1f,d*.16f);box.setScaleX(s);box.setScaleY(s);box.setAlpha(1-Math.min(.25f,d*.35f));}
+        }
     }
     /** Behind the presented catalog: black outside the receding stage's rounded card, and a dim over it. */
     final class Curtain extends View {

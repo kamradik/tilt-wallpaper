@@ -43,7 +43,7 @@ public final class OnboardingActivity extends Activity {
         for(int i=0;i<=LAST;i++){View d=new View(this);d.setBackground(new Shape(LABEL,-1));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(8),dp(8));lp.leftMargin=lp.rightMargin=dp(4);dots.addView(d,lp);}
         next=capsule(this,"",true);LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(-1,dp(54));np.topMargin=dp(22);bottom.addView(next,np);
         next.setOnClickListener(v->{if(page<LAST)go(page+1);else finishWith(true);});
-        later=text(this,"",17,REGULAR,BLUE);later.setGravity(Gravity.CENTER);later.setClickable(true);later.setOnClickListener(v->finishWith(false));
+        later=text(this,"",17,REGULAR,accent);later.setGravity(Gravity.CENTER);later.setClickable(true);later.setOnClickListener(v->finishWith(false));
         bottom.addView(pressable(later),new LinearLayout.LayoutParams(-1,dp(48)));
         root.setOnApplyWindowInsetsListener((v,i)->{Insets bars=i.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
             bottom.setPadding(dp(28)+bars.left,0,dp(28)+bars.right,bars.bottom+dp(12));demo.top=bars.top;return i;});

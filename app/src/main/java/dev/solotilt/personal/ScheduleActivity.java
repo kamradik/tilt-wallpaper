@@ -53,14 +53,14 @@ public final class ScheduleActivity extends Activity {
         toggle(timed,tr("Менять пресеты по времени","Switch presets by time"),plan.enabled,on->{plan().enabled=on;changed();});
         for(Schedule.Window w:plan.windows)windowRow(timed,w);
         if(plan.windows.size()<Schedule.MAX_WINDOWS&&!config.presets.isEmpty()){
-            TextView add=text(this,tr("Добавить время","Add a time"),17,REGULAR,BLUE);add.setClickable(true);add.setOnClickListener(v->addWindow());row(this,timed,null,pressable(add));
+            TextView add=text(this,tr("Добавить время","Add a time"),17,REGULAR,accent);add.setClickable(true);add.setOnClickListener(v->addWindow());row(this,timed,null,pressable(add));
         }
         footer(this,list,config.presets.isEmpty()?tr("Сначала сохрани хотя бы один пресет: каждое время показывает свой пресет.","Save at least one preset first: each time shows a preset.")
             :tr("Каждый пресет держится до следующего времени, последний — до утра. Обои переключаются, когда ты в следующий раз видишь экран.","Each preset stays until the next time; the last one runs through the night. The wallpaper switches the next time the screen is shown."));
 
         LinearLayout photo=group(this,list,tr("Фото дня","Photo of the day"));
         toggle(photo,tr("Менять фото из альбома","Rotate photos from an album"),plan.rotate,on->{plan().rotate=on;changed();if(on&&plan().album==null)pickAlbum();});
-        TextView album=text(this,plan.album==null?tr("Выбрать","Choose"):albumName(plan.album),17,REGULAR,plan.album==null?BLUE:SECONDARY);album.setMaxLines(1);album.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);album.setMaxWidth(dp(170));
+        TextView album=text(this,plan.album==null?tr("Выбрать","Choose"):albumName(plan.album),17,REGULAR,plan.album==null?accent:SECONDARY);album.setMaxLines(1);album.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);album.setMaxWidth(dp(170));
         LinearLayout albumRow=row(this,photo,tr("Альбом","Album"),album);albumRow.setClickable(true);albumRow.setOnClickListener(v->pickAlbum());highlight(albumRow);
         Segmented when=new Segmented(this,tr("Каждый день","Every day"),tr("При разблокировке","Every unlock"));when.select(plan.perUnlock?1:0,false);when.listener=i->{plan().perUnlock=i==1;changed();};
         row(this,photo,null,when);
@@ -70,7 +70,7 @@ public final class ScheduleActivity extends Activity {
     void windowRow(LinearLayout card,Schedule.Window w){
         separate(this,card);
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setMinimumHeight(dp(56));row.setPadding(dp(16),dp(6),dp(14),dp(6));
-        TextView time=text(this,Schedule.hhmm(w.minute),22,MEDIUM,BLUE);time.setFontFeatureSettings("tnum");time.setClickable(true);time.setContentDescription(tr("Время ","Time ")+Schedule.hhmm(w.minute));
+        TextView time=text(this,Schedule.hhmm(w.minute),22,MEDIUM,accent);time.setFontFeatureSettings("tnum");time.setClickable(true);time.setContentDescription(tr("Время ","Time ")+Schedule.hhmm(w.minute));
         time.setOnClickListener(v->pickTime(w));row.addView(pressable(time),new LinearLayout.LayoutParams(-2,-2));
         Preset p=config.preset(w.preset);
         TextView name=text(this,p==null?"—":p.name,17,REGULAR,SECONDARY);name.setGravity(Gravity.END);name.setMaxLines(1);name.setEllipsize(android.text.TextUtils.TruncateAt.END);

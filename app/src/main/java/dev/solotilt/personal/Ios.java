@@ -23,6 +23,8 @@ final class Ios {
     static final int LABEL=0xffffffff,SECONDARY=0x99ebebf5,TERTIARY=0x4debebf5,FILL=0x5c787880,SEPARATOR=0x5c545458,
         BLUE=0xff0a84ff,GREEN=0xff30d158,ORANGE=0xffff9f0a,ALERT=0xf0262628,SHEET=0x8c101014;
     static final int REGULAR=400,MEDIUM=500,SEMIBOLD=600,BOLD=700;
+    /** The interface's tint: links, switches and slider fills. Taken from the wallpaper (Accent) or the system blue. */
+    static volatile int accent=BLUE;
     // One corner scale for the whole app: controls are capsules, cards 14-18, grouped lists 20, sheets 32.
     static final float CARD=14,GROUPED=20,SHEET_RADIUS=32;
     static final Handler MAIN=new Handler(Looper.getMainLooper());
@@ -204,9 +206,19 @@ final class Ios {
         if(zoom==zoomValue&&cropX==cropXValue&&cropY==cropYValue)return;zoom=Math.max(1,zoomValue);cropX=cropXValue;cropY=cropYValue;refract();
     }
     static final Runnable SHINE=()->{lightPending=false;lightDeg=lightTarget;refract();};
+    // Parallax: one view (the hub's header) floats over the wallpaper and drifts a few dp with the tilt, eased per frame.
+    static WeakReference<View> floating;static volatile float driftX,driftY;static float shownX,shownY;static boolean drifting;
+    static void floatOver(View v){floating=new WeakReference<>(v);}
+    static final Runnable DRIFT=new Runnable(){public void run(){
+        View v=floating==null?null:floating.get();if(v==null||!v.isAttachedToWindow()){drifting=false;return;}
+        float max=px(v.getContext(),6);shownX+=(driftX*max-shownX)*.16f;shownY+=(driftY*max-shownY)*.16f;
+        v.scrollTo(Math.round(-shownX),Math.round(shownY));
+        if(Math.abs(driftX*max-shownX)>.3f||Math.abs(driftY*max-shownY)>.3f)v.postOnAnimation(this);else drifting=false;
+    }};
     /** Device tilt in degrees moves the specular highlight on every glass edge. Any thread; coalesced to at most ~30 Hz. */
     static void light(float tiltX,float tiltY){
-        if(reduce)return;long now=SystemClock.uptimeMillis();if(lightPending||now-lightTime<33)return;
+        if(reduce)return;long now=SystemClock.uptimeMillis();
+        driftX=clamp(tiltX/35f,-1,1);driftY=clamp(tiltY/35f,-1,1);if(!drifting&&floating!=null){drifting=true;MAIN.post(DRIFT);}if(lightPending||now-lightTime<33)return;
         float deg=(float)Math.toDegrees(Math.atan2(-1+clamp(tiltY,-60,60)/90f,-.45f+clamp(tiltX,-60,60)/45f));
         if(Math.abs(deg-lightTarget)<.75f)return;lightTime=now;lightTarget=deg;lightPending=true;MAIN.post(SHINE);
     }
@@ -437,7 +449,7 @@ final class Ios {
         @Override public boolean performClick(){setOn(!on,true);haptic(this,SELECT);if(listener!=null)listener.changed(on);return super.performClick();}
         @Override protected void onDraw(Canvas c){
             float d=px(getContext(),1),left=getPaddingLeft(),top=getPaddingTop(),w=51*d,h=31*d;
-            paint.clearShadowLayer();paint.setColor(mix(FILL,GREEN,Math.min(1,progress)));r.set(left,top,left+w,top+h);c.drawRoundRect(r,h/2,h/2,paint);
+            paint.clearShadowLayer();paint.setColor(mix(FILL,accent,Math.min(1,progress)));r.set(left,top,left+w,top+h);c.drawRoundRect(r,h/2,h/2,paint);
             float knob=27*d,width=knob+7*d*stretch,x=left+2*d+(w-4*d-width)*progress;
             paint.setShadowLayer(3*d,0,1.5f*d,0x45000000);paint.setColor(LABEL);r.set(x,top+2*d,x+width,top+2*d+knob);c.drawRoundRect(r,knob/2,knob/2,paint);
         }
@@ -475,7 +487,7 @@ final class Ios {
         @Override protected void onDraw(Canvas c){
             float d=px(getContext(),1),cy=getHeight()/2f,t=thumb(),edge=t*1.3f;
             paint.clearShadowLayer();paint.setColor(0x47787880);r.set(edge,cy-2*d,getWidth()-edge,cy+2*d);c.drawRoundRect(r,2*d,2*d,paint);
-            float zero=xOf(Math.max(min,Math.min(max,0))),x=xOf(value);paint.setColor(LABEL);r.set(Math.min(zero,x),cy-2*d,Math.max(zero,x),cy+2*d);c.drawRoundRect(r,2*d,2*d,paint);
+            float zero=xOf(Math.max(min,Math.min(max,0))),x=xOf(value);paint.setColor(accent);r.set(Math.min(zero,x),cy-2*d,Math.max(zero,x),cy+2*d);c.drawRoundRect(r,2*d,2*d,paint);
             // iOS 26: the knob widens into a capsule and turns to clear glass while it is dragged.
             float hw=t*(1+.3f*held),hh=t*(1+.08f*held);r.set(x-hw,cy-hh,x+hw,cy+hh);
             paint.setShadowLayer(4*d,0,2*d,0x4d000000);paint.setColor(mix(LABEL,0xd9f5f5f7,held));c.drawRoundRect(r,hh,hh,paint);
@@ -505,7 +517,7 @@ final class Ios {
         TextView body=text(a,message,13,REGULAR,0xd9ffffff);body.setGravity(Gravity.CENTER);body.setLineSpacing(px(a,2),1);body.setPadding(dp(a,18),dp(a,2),dp(a,18),dp(a,18));
         ScrollView scroll=new ScrollView(a);scroll.addView(body);card.addView(scroll,new LinearLayout.LayoutParams(-1,-2,1));
         card.addView(hairline(a),new LinearLayout.LayoutParams(-1,Math.max(1,dp(a,.5f))));
-        TextView button=text(a,action,17,SEMIBOLD,BLUE);button.setGravity(Gravity.CENTER);button.setClickable(true);button.setFocusable(true);button.setAccessibilityDelegate(BUTTON);button.setOnClickListener(v->dialog.dismiss());
+        TextView button=text(a,action,17,SEMIBOLD,accent);button.setGravity(Gravity.CENTER);button.setClickable(true);button.setFocusable(true);button.setAccessibilityDelegate(BUTTON);button.setOnClickListener(v->dialog.dismiss());
         card.addView(pressable(button),new LinearLayout.LayoutParams(-1,dp(a,48)));
         dialog.setContentView(frame);
         Window w=dialog.getWindow();w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));w.setLayout(-1,-2);w.setDimAmount(.45f);w.setWindowAnimations(android.R.style.Animation_Toast);

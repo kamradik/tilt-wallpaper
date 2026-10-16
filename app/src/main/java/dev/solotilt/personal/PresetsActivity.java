@@ -68,7 +68,7 @@ public final class PresetsActivity extends Activity {
         list.setHapticFeedbackEnabled(config.haptics);
     }
     void link(LinearLayout card,String title,Runnable action){
-        TextView t=text(this,title,17,REGULAR,BLUE);t.setClickable(true);t.setOnClickListener(v->{if(!busy)action.run();});row(this,card,null,pressable(t));
+        TextView t=text(this,title,17,REGULAR,accent);t.setClickable(true);t.setOnClickListener(v->{if(!busy)action.run();});row(this,card,null,pressable(t));
     }
     void presetRow(LinearLayout card,Preset p){
         separate(this,card);
@@ -126,7 +126,7 @@ public final class PresetsActivity extends Activity {
         card.addView(hairline(this),new LinearLayout.LayoutParams(-1,Math.max(1,dp(.5f))));
         LinearLayout buttons=new LinearLayout(this);card.addView(buttons,new LinearLayout.LayoutParams(-1,dp(48)));
         Dialog d=dialog(this,frame,Gravity.CENTER);
-        TextView share=text(this,tr("Поделиться","Share"),17,REGULAR,BLUE),ok=text(this,tr("Готово","Done"),17,SEMIBOLD,BLUE);
+        TextView share=text(this,tr("Поделиться","Share"),17,REGULAR,accent),ok=text(this,tr("Готово","Done"),17,SEMIBOLD,accent);
         for(TextView b:new TextView[]{share,ok}){b.setGravity(Gravity.CENTER);b.setClickable(true);b.setFocusable(true);}
         buttons.addView(pressable(share),new LinearLayout.LayoutParams(0,-1,1));View line=new View(this);line.setBackgroundColor(Ios.SEPARATOR);buttons.addView(line,new LinearLayout.LayoutParams(Math.max(1,dp(.5f)),-1));buttons.addView(pressable(ok),new LinearLayout.LayoutParams(0,-1,1));
         share.setOnClickListener(v->{try{startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,code),look.name(config.en())));}catch(ActivityNotFoundException ignored){}});
@@ -267,7 +267,7 @@ public final class PresetsActivity extends Activity {
         card.addView(hairline(a),new LinearLayout.LayoutParams(-1,Math.max(1,Ios.dp(a,.5f))));
         LinearLayout buttons=new LinearLayout(a);card.addView(buttons,new LinearLayout.LayoutParams(-1,Ios.dp(a,48)));
         Dialog d=dialog(a,frame,Gravity.CENTER);
-        TextView no=text(a,cancel,17,REGULAR,BLUE),yes=text(a,ok,17,SEMIBOLD,BLUE);
+        TextView no=text(a,cancel,17,REGULAR,accent),yes=text(a,ok,17,SEMIBOLD,accent);
         for(TextView b:new TextView[]{no,yes}){b.setGravity(Gravity.CENTER);b.setClickable(true);b.setFocusable(true);}
         buttons.addView(pressable(no),new LinearLayout.LayoutParams(0,-1,1));View line=new View(a);line.setBackgroundColor(SEPARATOR);buttons.addView(line,new LinearLayout.LayoutParams(Math.max(1,Ios.dp(a,.5f)),-1));buttons.addView(pressable(yes),new LinearLayout.LayoutParams(0,-1,1));
         no.setOnClickListener(v->d.dismiss());
@@ -286,10 +286,10 @@ public final class PresetsActivity extends Activity {
         if(title!=null){TextView t=text(a,title,13,SEMIBOLD,SECONDARY);t.setGravity(Gravity.CENTER);t.setPadding(Ios.dp(a,16),Ios.dp(a,14),Ios.dp(a,16),Ios.dp(a,14));card.addView(t);}
         for(int i=0;i<items.length;i++){
             if(card.getChildCount()>0)card.addView(hairline(a),new LinearLayout.LayoutParams(-1,Math.max(1,Ios.dp(a,.5f))));
-            final int index=i;TextView b=text(a,items[i],19,REGULAR,i==destructive?0xffff453a:BLUE);b.setGravity(Gravity.CENTER);b.setClickable(true);b.setFocusable(true);b.setMaxLines(1);
+            final int index=i;TextView b=text(a,items[i],19,REGULAR,i==destructive?0xffff453a:accent);b.setGravity(Gravity.CENTER);b.setClickable(true);b.setFocusable(true);b.setMaxLines(1);
             b.setOnClickListener(v->{d.dismiss();pick.accept(index);});card.addView(pressable(b),new LinearLayout.LayoutParams(-1,Ios.dp(a,56)));
         }
-        TextView c=text(a,cancel,19,SEMIBOLD,BLUE);c.setGravity(Gravity.CENTER);c.setBackground(new Shape(0xff2c2c2e,px(a,CARD)));c.setClickable(true);c.setFocusable(true);c.setOnClickListener(v->d.dismiss());
+        TextView c=text(a,cancel,19,SEMIBOLD,accent);c.setGravity(Gravity.CENTER);c.setBackground(new Shape(0xff2c2c2e,px(a,CARD)));c.setClickable(true);c.setFocusable(true);c.setOnClickListener(v->d.dismiss());
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,Ios.dp(a,56));cp.topMargin=Ios.dp(a,8);column.addView(pressable(c),cp);
         column.setOnApplyWindowInsetsListener((v,i)->{v.setPadding(Ios.dp(a,8),0,Ios.dp(a,8),Ios.dp(a,8)+i.getInsets(WindowInsets.Type.navigationBars()).bottom);return i;});
         d.setOnShowListener(x->{column.setTranslationY(column.getHeight()+Ios.dp(a,40));spring(column,SMOOTH).translationY(0);});

@@ -68,7 +68,7 @@ public final class DebugActivity extends Activity {
 
         LinearLayout crash=group(this,list,tr("Журнал сбоев","Crash log"));
         logView=text(this,"",12,REGULAR,SECONDARY);logView.setTypeface(Typeface.MONOSPACE);logView.setTextIsSelectable(true);logView.setPadding(dp(16),dp(12),dp(16),dp(12));crash.addView(logView);
-        TextView share=action(tr("Поделиться логом","Share log"),BLUE);share.setOnClickListener(v->share());row(this,crash,null,share);
+        TextView share=action(tr("Поделиться логом","Share log"),accent);share.setOnClickListener(v->share());row(this,crash,null,share);
         TextView clear=action(tr("Очистить","Clear"),0xffff453a);clear.setOnClickListener(v->{CrashLog.clear();fillLog();});row(this,crash,null,clear);
         fillLog();
         footer(this,list,tr("Сбои и ошибки рендера записываются на телефоне, без интернета. Отправить журнал можно только вручную.","Crashes and renderer errors are written on the phone, offline. The log leaves it only if you share it."));

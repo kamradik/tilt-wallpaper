@@ -36,10 +36,10 @@ public final class SettingsActivity extends Activity {
         LinearLayout motionCard=group(this,list,tr("Движение","Motion"));
         unitSlider(this,motionCard,tr("Чувствительность","Sensitivity"),(config.sensitivity-.1f)/1.9f,v->{config.sensitivity=.1f+v/100f*1.9f;save();});
         unitSlider(this,motionCard,tr("Плавность","Smoothing"),config.smoothing,v->{config.smoothing=v/100f;save();});
-        TextView neutral=text(this,tr("Задать","Set"),17,REGULAR,BLUE);neutral.setClickable(true);neutral.setAccessibilityDelegate(BUTTON);
+        TextView neutral=text(this,tr("Задать","Set"),17,REGULAR,accent);neutral.setClickable(true);neutral.setAccessibilityDelegate(BUTTON);
         neutral.setOnClickListener(v->{config.neutralX=rawX;config.neutralY=rawY;save();v.performHapticFeedback(HapticFeedbackConstants.CONFIRM);Toast.makeText(this,tr("Это положение теперь нейтральное","This position is now neutral"),Toast.LENGTH_SHORT).show();});
         row(this,motionCard,tr("Нейтраль — как сейчас","Neutral — current pose"),pressable(neutral));
-        TextView resetNeutral=text(this,tr("Сбросить","Reset"),17,REGULAR,BLUE);resetNeutral.setClickable(true);resetNeutral.setAccessibilityDelegate(BUTTON);resetNeutral.setOnClickListener(v->{config.neutralX=config.neutralY=0;save();});
+        TextView resetNeutral=text(this,tr("Сбросить","Reset"),17,REGULAR,accent);resetNeutral.setClickable(true);resetNeutral.setAccessibilityDelegate(BUTTON);resetNeutral.setOnClickListener(v->{config.neutralX=config.neutralY=0;save();});
         row(this,motionCard,tr("Нейтраль — экраном вверх","Neutral — face up"),pressable(resetNeutral));
         toggle(motionCard,tr("Меньше движения","Reduce Motion"),config.reduceMotion,on->{config.reduceMotion=on;Ios.reduceMotion(on);});
         footer(this,list,tr("«Нейтраль» — положение телефона, при котором картинка ровная. Удобно, если держишь телефон под углом.","Neutral is the pose where the picture sits flat — handy if you usually hold the phone at an angle."));
@@ -68,6 +68,10 @@ public final class SettingsActivity extends Activity {
         Segmented icons=new Segmented(this,config.en()?AppIcons.EN:AppIcons.RU);icons.select(AppIcons.current(this),false);
         icons.listener=i->{try{AppIcons.set(this,i);}catch(RuntimeException e){android.util.Log.w("SoloIcons","Icon switch failed",e);}};row(this,icon,null,icons);
         footer(this,list,tr("Лаунчер может обновить иконку через несколько секунд.","The launcher may take a few seconds to show the new icon."));
+        LinearLayout tint=group(this,list,tr("Оформление","Appearance"));
+        Toggle fromPhoto=new Toggle(this);fromPhoto.setOn(Accent.enabled(this),false);fromPhoto.setContentDescription(tr("Цвет из обоев","Colour from wallpaper"));fromPhoto.setHapticFeedbackEnabled(config.haptics);
+        fromPhoto.listener=on->{Accent.setEnabled(this,on);recreate();};row(this,tint,tr("Цвет из обоев","Colour from wallpaper"),fromPhoto);
+        footer(this,list,tr("Переключатели, ползунки и ссылки окрашиваются в главный цвет твоих обоев.","Switches, sliders and links take on the main colour of your wallpaper."));
 
         LinearLayout about=group(this,list,tr("О приложении","About"));
         String version="";try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){}
