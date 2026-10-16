@@ -53,7 +53,7 @@ public final class SmokeTest {
         AccessibilityNodeInfo field=findClass("android.widget.EditText");
         Bundle text=new Bundle();text.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,"лёд");
         check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,text),"set text");
-        find(Pattern.compile("лёд"));back();  // hides the keyboard if it opened
+        find(Pattern.compile("лёд"));  // ACTION_SET_TEXT opens no keyboard, so no back here: it would close the catalog
         pause(800);shot("03_search_ice");
         AccessibilityNodeInfo close=findNow(any("Закрыть","Close"));if(close!=null)click(close);else back();
 
