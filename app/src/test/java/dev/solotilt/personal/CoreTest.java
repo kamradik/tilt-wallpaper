@@ -62,7 +62,7 @@ public class CoreTest {
             assertFalse(e.has(Effects.ANIMATED_SWITCH)&&!e.hasSwitch());
         }
         for(String f:Objects.requireNonNull(dir.list()))if(!f.equals("common.glsl")&&!f.equals("main.glsl"))assertTrue("shader without catalog entry: "+f,ids.contains(f.replace(".glsl","")));
-        assertEquals(34,Effects.ALL.length);assertSame(Effects.ALL[0],Effects.get("nope"));assertEquals("holo",Effects.get("sheen").id);
+        assertEquals(43,Effects.ALL.length);assertSame(Effects.ALL[0],Effects.get("nope"));assertEquals("holo",Effects.get("sheen").id);
         assertEquals("bokeh",Effects.get("diamond").id);
         Set<String> physics=Set.of("snowglobe","sand","droplets");
         for(Effects.Effect e:Effects.ALL)assertEquals(e.id,physics.contains(e.id),e.simulation!=null);

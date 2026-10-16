@@ -15,7 +15,7 @@ import static dev.solotilt.personal.Ios.*;
  */
 public final class WhatsNewActivity extends Activity {
     /** Bump when the list below changes enough to show it again. */
-    static final int NEWS=3;
+    static final int NEWS=4;
     static final String KEY="news";
     static final int NETWORK=0,SKY=1,CINEMA=2,LAYERS=3,LOOKS=4,WIDGET=5,MOTION=6;
 
@@ -40,6 +40,7 @@ public final class WhatsNewActivity extends Activity {
         LinearLayout column=new LinearLayout(this);column.setOrientation(LinearLayout.VERTICAL);scroll.addView(column,new ScrollView.LayoutParams(-1,-2));
         TextView title=text(this,tr("Что нового\nв Parallaxia","What’s New\nin Parallaxia"),34,BOLD,LABEL);title.setGravity(Gravity.CENTER);title.setPadding(0,dp(36),0,dp(30));column.addView(title);
         String[][] items={
+            {tr("Девять новых эффектов","Nine new effects"),tr("Пространственная сцена, туман, снегопад, гроза, феррофлюид, стеклянная мозаика, зеркальное озеро, живопись и неоновый контур. И обновлённые боке, фокус, иней, рифлёное стекло и другие.","Spatial Scene, Morning Mist, Snowfall, Thunderstorm, Ferrofluid, Glass Mosaic, Mirror Lake, Oil Painting and Neon Outline. Plus reworked Bokeh, Focus Rack, Frost, Fluted Glass and more.")},
             {tr("Жидкое стекло","Liquid Glass"),tr("Стекло интерфейса стало настоящей линзой: гнёт обои у кромки, переливается, продавливается под пальцем. Новые шрифты Unbounded и Inter.","The interface glass is a real lens now: it bends the wallpaper at the rim, shimmers and dips under your finger. New type: Unbounded and Inter.")},
             {tr("Живой интерфейс","A living interface"),tr("Цвет из твоих обоев, волна при смене эффекта, сканирование глубины и шапка, которая парит над фото при наклоне.","Colour from your wallpaper, a ripple when the effect changes, a depth scan and a header that floats over the photo as you tilt.")},
             {tr("Нейросеть глубины","Depth network"),tr("Объект отделяется от фона, а фон за ним дорисовывается. Всё считается на телефоне.","The subject separates from the background, and the background behind it is painted in. All on the phone.")},
@@ -49,7 +50,7 @@ public final class WhatsNewActivity extends Activity {
             {tr("Образы","Looks"),tr("Десять готовых образов, свои сохранения и обмен образами по QR-коду.","Ten ready-made looks, your own saves and sharing looks as QR codes.")},
             {tr("Виджет и иконки","Widget and icons"),tr("Смена образа с главного экрана и четыре иконки приложения на выбор.","Switch looks from the home screen and pick one of four app icons.")},
         };
-        int[] kinds={MOTION,MOTION,NETWORK,SKY,CINEMA,LAYERS,LOOKS,WIDGET};
+        int[] kinds={SKY,MOTION,MOTION,NETWORK,SKY,CINEMA,LAYERS,LOOKS,WIDGET};
         for(int i=0;i<items.length;i++){
             LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(32),dp(10),dp(32),dp(10));
             row.addView(new Tile(this,kinds[i]),new LinearLayout.LayoutParams(dp(48),dp(48)));

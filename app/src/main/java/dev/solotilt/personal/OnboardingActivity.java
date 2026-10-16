@@ -54,7 +54,7 @@ public final class OnboardingActivity extends Activity {
     String[][] pages(){
         return new String[][]{
             {tr("Обои, которые\nчувствуют наклон","A wallpaper that\nfeels the tilt"),tr("Твоё фото оживает за стеклом: перспектива, свет и глубина следуют за телефоном.","Your photo comes alive behind glass: perspective, light and depth follow your phone.")},
-            {tr("Эффекты на любой вкус","Effects for every mood"),tr("34 эффекта: вода, свет, объём, живое небо. Добавь второй слой, собери свой образ и поделись им по QR-коду.","34 effects: water, light, depth, a living sky. Add a second layer, build your own look and share it as a QR code.")},
+            {tr("Эффекты на любой вкус","Effects for every mood"),tr("43 эффекта: вода, свет, объём, живое небо. Добавь второй слой, собери свой образ и поделись им по QR-коду.","43 effects: water, light, depth, a living sky. Add a second layer, build your own look and share it as a QR code.")},
             {tr("Нейросеть\nв телефоне","A neural network\non your phone"),tr("Она понимает глубину фото, отделяет объект и дорисовывает фон за ним. Видео и живые фото тоже подойдут, а синемаграф оставит движение только там, где нужно.","It reads your photo’s depth, separates the subject and paints the background behind it. Videos and motion photos work too, and a cinemagraph keeps motion only where you want it.")},
             {tr("Главный экран\nи блокировка","Home Screen\nand Lock Screen"),tr("Можно поставить одно и то же на оба экрана или отдельные обои на блокировку. При установке выбери «Главный экран и экран блокировки».","Use one look on both screens, or give the lock screen its own. When setting, choose “Home and lock screens”.")},
         };

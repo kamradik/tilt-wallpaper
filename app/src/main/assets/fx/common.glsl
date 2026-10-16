@@ -50,6 +50,9 @@ vec3 plate(vec2 uv,float lod){return textureLod(u_plate,coords(uv),lod).rgb;}
 // The main subject, 0..1. Depth maps from MlDepth carry a subject mask in G and mark it with B = 1; imported and
 // approximate maps have depth only, so the subject is whatever stands nearer than the middle of the depth range.
 float subjectAt(vec2 uv){vec4 d=texture(u_depth,coords(uv));return d.b>.9?d.g:smoothstep(.46,.54,d.r);}
+// The same mask blurred by a mip level (for soft shadows and glows); whether the map has a mask is read once
+// for the whole map, since its marker averages below one along the edges at blurred levels.
+float subjectSoft(vec2 uv,float lod){vec4 d=textureLod(u_depth,coords(uv),lod);return textureLod(u_depth,vec2(.5),10.0).b>.9?d.g:smoothstep(.42,.58,d.r);}
 
 vec3 classic(vec2 uv){
     vec3 point=vec3((uv-.5)*vec2(1.0,1.0/u_aspect),1.0);
