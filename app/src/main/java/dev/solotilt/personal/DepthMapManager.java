@@ -33,6 +33,13 @@ final class DepthMapManager {
     static File file(Context c,String key,boolean manual){return new File(c.getFilesDir(),"depth-"+key+(manual?"-manual":"-approx-v1")+".png");}
     static File mlFile(Context c,String key){return new File(c.getFilesDir(),"depth-"+key+"-ml-v3.png");}
     static boolean manual(Context c,String key){return file(c,key,true).isFile();}
+    /** For previews: the map already prepared for this photo, or the quick approximation; never runs the network,
+     *  which takes seconds and belongs to the wallpaper itself. */
+    static synchronized Bitmap cached(Context c,Bitmap image,String key)throws IOException{
+        if(manual(c,key)){Bitmap b=BitmapFactory.decodeFile(file(c,key,true).getPath());if(b!=null)return depthOnly(b);}
+        File ml=mlFile(c,key);if(ml.isFile()){Bitmap b=BitmapFactory.decodeFile(ml.getPath());if(b!=null)return b;}
+        return depthOnly(PROVIDER.estimate(image));
+    }
     /** The photo's depth map: an imported one, else the model's, else (model unavailable) the approximation. Cached. */
     static synchronized Bitmap load(Context c,Bitmap image,String key)throws IOException{
         if(manual(c,key)){Bitmap cached=BitmapFactory.decodeFile(file(c,key,true).getPath());if(cached!=null)return depthOnly(cached);}

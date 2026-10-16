@@ -29,7 +29,7 @@ import java.util.Collections;
 final class MlDepth {
     static final String MODEL="models/depth_anything_v2_small_int8.onnx",SUBJECT_MODEL="models/u2netp.onnx";
     /** u2netp's fixed input size, and the share of the frame a subject must cover to count as one. */
-    static final int SUBJECT_SIDE=320;static final float MIN_AREA=.03f,MAX_AREA=.8f;
+    static final int SUBJECT_SIDE=320;static final float MIN_AREA=.03f,MAX_AREA=.6f,NEARER=.08f;
     /** Long side of the network input; both sides must be multiples of the ViT patch size. */
     static final int LONG_SIDE=588,PATCH=14,REFINED=1024;
     /** Guided filter window (pixels of the refined map) and regularization: only strong photo edges move the depth. */
@@ -118,6 +118,7 @@ final class MlDepth {
                     float[] refined=guided(guide,resize(depth,shape[0],shape[1],rw,rh),rw,rh,RADIUS,EPS);
                     float[] mask=null;
                     try{mask=subject(c,env,options,image,guide,rw,rh);}catch(OrtException|IOException|RuntimeException e){Log.w("SoloDepth","Subject mask unavailable",e);}
+                    if(mask!=null&&!standsOut(refined,mask))mask=null;  // a "subject" the depth does not put in front is not one
                     if(mask!=null){layer(refined,mask);return Bitmap.createBitmap(withMask(refined,mask),rw,rh,Bitmap.Config.ARGB_8888);}
                     String timing="Depth Anything "+w+"x"+h+" x2 in "+inferred+" ms, refined to "+rw+"x"+rh+" in "+(android.os.SystemClock.elapsedRealtime()-started-inferred)+" ms";
                     Log.i("SoloDepth",timing);CrashLog.note(timing); // shown in Diagnostics, so the real speed on a phone is visible
@@ -151,6 +152,15 @@ final class MlDepth {
         int inside=0;for(int i=0;i<up.length;i++){float v=Math.max(0,Math.min(1,(up[i]-.35f)/.3f));up[i]=v*v*(3-2*v);if(up[i]>.5f)inside++;}
         float area=inside/(float)up.length;
         return area<MIN_AREA||area>MAX_AREA?null:up;
+    }
+    /** True when the depth puts the masked subject in front of what surrounds it (median inside nearer than the
+     *  mean outside by NEARER). Landscapes, where the mask network picks out a large region that is not in front,
+     *  keep their full depth. Pure, unit-tested. */
+    static boolean standsOut(float[] depth,float[] mask){
+        int n=0;for(float m:mask)if(m>.5f)n++;if(n==0)return false;
+        float[] in=new float[n];int k=0;double out=0;int outN=0;
+        for(int i=0;i<depth.length;i++){if(mask[i]>.5f)in[k++]=depth[i];else if(mask[i]<.1f){out+=depth[i];outN++;}}
+        java.util.Arrays.sort(in);return outN>0&&in[n/2]>out/outN+NEARER;
     }
     /** Flattens the subject's depth into one layer: its median depth, keeping a little of its own relief, and
      *  never behind its surroundings. In place. */

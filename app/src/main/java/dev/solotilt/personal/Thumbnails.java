@@ -32,7 +32,7 @@ final class Thumbnails {
                 photo=ImageStore.isCustom(context,slot)?ImageStore.thumbnail(context,slot,HEIGHT*2):ImageStore.preset(ImageStore.presetIndex(context,slot),HEIGHT*2f/1560);
                 if(photo==null)photo=ImageStore.preset(ImageStore.presetIndex(context,slot),HEIGHT*2f/1560);
                 scene.upload(0,photo);while(scene.prepareBlur()){}
-                try{depth=DepthMapManager.load(context,photo,DepthMapManager.key(context,slot));scene.uploadDepth(0,depth);}catch(Exception|OutOfMemoryError e){Log.w("SoloThumbs","No depth for previews",e);}
+                try{depth=DepthMapManager.cached(context,photo,DepthMapManager.key(context,slot));scene.uploadDepth(0,depth);}catch(Exception|OutOfMemoryError e){Log.w("SoloThumbs","No depth for previews",e);}
                 GlScene.Pass pass=new GlScene.Pass();ByteBuffer pixels=ByteBuffer.allocateDirect(WIDTH*HEIGHT*4).order(ByteOrder.nativeOrder());
                 float[] touch={.5f,.5f,99,0};android.graphics.Matrix flip=new android.graphics.Matrix();flip.setScale(1,-1);
                 for(Effects.Effect e:Effects.ALL){

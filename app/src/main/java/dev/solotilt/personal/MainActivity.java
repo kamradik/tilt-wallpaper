@@ -9,13 +9,14 @@ import android.net.Uri;
 import android.os.*;
 import android.view.*;
 import android.widget.*;
+import java.io.File;
 import java.util.*;
 import java.util.concurrent.*;
 import static dev.solotilt.personal.Ios.*;
 
 /** The hub: live preview of the selected screen, the effect sheet, and the searchable catalog. */
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
-    static final int PICK_PHOTO=10,PICK_DEPTH=11,ONBOARD=12,TRIM=13;
+    static final int PICK_PHOTO=10,PICK_DEPTH=11,ONBOARD=12,TRIM=13,PICK_SERIES=14;
     /** Catalog filters below -2 are the curated collections: -10 is collection 0, -11 collection 1, ... */
     static final int COLLECTION_FILTER=-10;
     static final String[] PRESETS_RU={"Розовые ленты","Синие ленты","Янтарные ленты"},PRESETS_EN={"Rose ribbons","Blue ribbons","Amber ribbons"};
@@ -123,6 +124,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout more=group(this,sheetBody,null);((LinearLayout.LayoutParams)more.getLayoutParams()).topMargin=dp(16);
         navRow(more,tr("Пресеты","Presets"),()->push(PresetsActivity.class));
         navRow(more,tr("Расписание","Schedule"),()->push(ScheduleActivity.class));
+        navRow(more,tr("Серия фото (3D)","Photo series (3D)"),this::pickSeries);
 
         root.setOnApplyWindowInsetsListener((v,insets)->{
             Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
@@ -432,7 +434,30 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     }
     @Override protected void onPause(){saveNow();rememberMedia();resumed=false;update();super.onPause();}
     @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);io.shutdown();motion.close();renderer.close();thumbnails.close();for(Bitmap b:previews.values())b.recycle();super.onDestroy();}
+    /** 2..6 photos taken while stepping sideways become a tilt-scrubbed video (SeriesImport). */
+    void pickSeries(){
+        if(!editable()||importing)return;
+        Intent i=Build.VERSION.SDK_INT>=33?new Intent("android.provider.action.PICK_IMAGES").putExtra("android.provider.extra.PICK_IMAGES_MAX",SeriesImport.MAX)
+            :new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);
+        try{startActivityForResult(i,PICK_SERIES);swap(status,tr("Выбери от 2 до 6 фото, снятых с шагом в сторону, слева направо.","Pick 2 to 6 photos taken while stepping sideways, left to right."));}
+        catch(ActivityNotFoundException e){showError("picker");}
+    }
+    void importSeries(Intent data){
+        List<Uri> uris=new ArrayList<>();
+        if(data.getClipData()!=null)for(int k=0;k<data.getClipData().getItemCount();k++)uris.add(data.getClipData().getItemAt(k).getUri());
+        else if(data.getData()!=null)uris.add(data.getData());
+        if(uris.size()<SeriesImport.MIN||uris.size()>SeriesImport.MAX){swap(status,tr("Нужно от 2 до 6 фото.","Pick 2 to 6 photos."));return;}
+        importing=true;choose.setEnabled(false);install.setEnabled(false);Context app=getApplicationContext();String m=mediaSlot();
+        io.execute(()->{boolean ok=true;File temp=new File(app.getCacheDir(),"series.mp4");
+            try{int[] shown={-1};SeriesImport.encode(app,uris,temp,f->{int pct=Math.round(f*100);if(pct>=shown[0]+5){shown[0]=pct;runOnUiThread(()->status.setText(tr("Собираю серию… ","Building the series… ")+pct+"%"));}});
+                ImageStore.importVideo(app,Uri.fromFile(temp),m);ImageStore.setScrub(app,m,true);DepthMapManager.prune(app);}
+            catch(Exception|OutOfMemoryError e){android.util.Log.w("SoloVideo","Series failed",e);ok=false;}
+            finally{temp.delete();}
+            final boolean success=ok;runOnUiThread(()->{if(isDestroyed())return;importing=false;choose.setEnabled(editable());install.setEnabled(true);
+                if(success)mediaChanged(tr("Серия готова: наклоняй телефон.","Series ready: tilt the phone."));else showError("image");});});
+    }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
+        if(request==PICK_SERIES){if(result==RESULT_OK&&data!=null)importSeries(data);return;}
         if(request==ONBOARD){if(result==RESULT_OK)main.postDelayed(this::install,300);return;}
         // The trim screen imports the clip itself; refresh either way, since a back press during saving still finishes the import.
         if(request==TRIM){renderer.reload();mediaChanged(result==RESULT_OK?tr("Видео готово. Выбери эффект.","Video ready. Pick an effect."):"");return;}

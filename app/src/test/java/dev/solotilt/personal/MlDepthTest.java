@@ -74,4 +74,10 @@ public class MlDepthTest {
         int[] px=MlDepth.withMask(new float[]{1,0},new float[]{0,1});
         assertEquals(0xffff00ff,px[0]);assertEquals(0xff00ffff,px[1]);
     }
+    @Test public void aSubjectMustStandInFront(){
+        float[] mask={1,1,0,0};
+        assertTrue(MlDepth.standsOut(new float[]{.8f,.8f,.3f,.3f},mask));
+        assertFalse("not in front",MlDepth.standsOut(new float[]{.3f,.3f,.8f,.8f},mask));
+        assertFalse("level with the rest",MlDepth.standsOut(new float[]{.5f,.5f,.48f,.48f},mask));
+    }
 }

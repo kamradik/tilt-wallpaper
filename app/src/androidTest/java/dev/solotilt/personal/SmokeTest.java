@@ -104,7 +104,7 @@ public final class SmokeTest {
         long t=SystemClock.elapsedRealtime();Bitmap d=MlDepth.estimate(app,b);t=SystemClock.elapsedRealtime()-t;
         android.util.Log.w("SoloDepth","Timing: Depth Anything x2 + guided refinement took "+t+" ms on this device"); // a warning, so ci/report.py shows it
         check(d.getWidth()==640&&d.getHeight()==480,"refined depth "+d.getWidth()+"x"+d.getHeight());
-        float top=0,bottom=0;for(int x=0;x<d.getWidth();x++){top+=d.getPixel(x,d.getHeight()/10)&255;bottom+=d.getPixel(x,d.getHeight()*9/10)&255;}
+        float top=0,bottom=0;for(int x=0;x<d.getWidth();x++){top+=(d.getPixel(x,d.getHeight()/10)>>16)&255;bottom+=(d.getPixel(x,d.getHeight()*9/10)>>16)&255;}  // depth is in R
         check(bottom>top,"ground "+bottom/d.getWidth()+" should be nearer than sky "+top/d.getWidth()+" ("+t+" ms)");
         b.recycle();d.recycle();
     }
@@ -129,6 +129,19 @@ public final class SmokeTest {
             check(Looks.ALL[0].effect.equals(back.home.effect)&&Looks.ALL[0].overlay.equals(back.home.overlay),"look applied");
             check(Math.abs(back.home.mods[0]-.5f)<1e-4,"finishing saved");
         }finally{ImageStore.prefs(app).edit().putString(WallpaperConfig.KEY,saved).commit();}
+    }
+    /** Three photos become a series video of the expected length, which then imports as a scrubbed wallpaper clip. */
+    public void testPhotoSeriesBecomesAVideo()throws Exception{
+        java.util.List<android.net.Uri> uris=new java.util.ArrayList<>();
+        for(int i=0;i<3;i++){Bitmap b=Bitmap.createBitmap(600,900,Bitmap.Config.ARGB_8888);b.eraseColor(0xff000000|(80*i)<<16|0x4080);
+            File f=new File(app.getCacheDir(),"series"+i+".png");try(java.io.FileOutputStream o=new java.io.FileOutputStream(f)){b.compress(Bitmap.CompressFormat.PNG,100,o);}b.recycle();uris.add(android.net.Uri.fromFile(f));}
+        File out=new File(app.getCacheDir(),"series-test.mp4");
+        SeriesImport.encode(app,uris,out,null);
+        try(android.media.MediaMetadataRetriever r=new android.media.MediaMetadataRetriever()){
+            r.setDataSource(out.getPath());long ms=Long.parseLong(r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION));
+            long want=SeriesImport.frames(3)*1000L/SeriesImport.FPS;check(Math.abs(ms-want)<=120,"series length "+ms+" ms, want "+want);
+        }
+        out.delete();for(android.net.Uri u:uris)new File(u.getPath()).delete();
     }
     /** A look survives a round trip through a QR picture: encode, draw, read back with ZXing, decode. */
     public void testLookQrRoundTrip()throws Exception{
