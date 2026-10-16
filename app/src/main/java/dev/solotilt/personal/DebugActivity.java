@@ -127,7 +127,7 @@ public final class DebugActivity extends Activity {
     void share(){
         String log=CrashLog.read();
         if(log.isEmpty()){Toast.makeText(this,tr("Журнал пуст","The log is empty"),Toast.LENGTH_SHORT).show();return;}
-        Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT,"Tilt crash log").putExtra(Intent.EXTRA_TEXT,CrashLog.forSharing(log,SHARE_LIMIT));
+        Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT,"Parallaxia crash log").putExtra(Intent.EXTRA_TEXT,CrashLog.forSharing(log,SHARE_LIMIT));
         try{startActivity(Intent.createChooser(send,tr("Поделиться логом","Share log")));}catch(Exception e){Toast.makeText(this,tr("Некуда отправить","No app to share with"),Toast.LENGTH_SHORT).show();}
     }
     @Override protected void onResume(){super.onResume();main.post(tick);}

@@ -3,13 +3,13 @@
   <uses-feature android:name="android.software.live_wallpaper" android:required="true"/>
   <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false"/>
   <uses-permission android:name="android.permission.SET_WALLPAPER"/>
-  <application android:name=".TiltApp" android:theme="@style/AppTheme" android:label="Tilt — свои обои" android:icon="@drawable/icon" android:allowBackup="false" android:supportsRtl="true">
+  <application android:name=".TiltApp" android:theme="@style/AppTheme" android:label="Parallaxia" android:icon="@drawable/icon" android:allowBackup="false" android:supportsRtl="true">
     <activity android:name=".AuthorActivity" android:exported="false" android:screenOrientation="portrait"/>
     <activity android:name=".SettingsActivity" android:exported="false" android:screenOrientation="portrait"/>
     <activity android:name=".VideoTrimActivity" android:exported="false" android:screenOrientation="portrait" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|keyboard|keyboardHidden|navigation"/>
     <activity android:name=".ScheduleActivity" android:exported="false" android:screenOrientation="portrait"/>
     <activity android:name=".OnboardingActivity" android:exported="false" android:screenOrientation="portrait"/>
-    <!-- Opens .tilt preset files from file managers and messengers. Content URIs rarely carry the extension, so the
+    <!-- Opens .parallaxia (and older .tilt) preset files from file managers and messengers. Content URIs rarely carry the extension, so the
          mime types do most of the matching; the path patterns cover providers that keep the file name in the path. -->
     <activity android:name=".PresetsActivity" android:exported="true" android:screenOrientation="portrait" android:launchMode="singleTop">
       <intent-filter tools:ignore="AppLinkUrlError">
@@ -21,7 +21,10 @@
         <data android:host="*"/>
         <data android:mimeType="application/zip"/>
         <data android:mimeType="application/octet-stream"/>
+        <data android:mimeType="application/x-parallaxia"/>
         <data android:mimeType="application/x-tilt"/>
+        <data android:pathPattern=".*\\.parallaxia"/>
+        <data android:pathPattern=".*\\..*\\.parallaxia"/>
         <data android:pathPattern=".*\\.tilt"/>
         <data android:pathPattern=".*\\..*\\.tilt"/>
         <data android:pathPattern=".*\\..*\\..*\\.tilt"/>
@@ -36,7 +39,7 @@
     <activity android:name=".DebugActivity" android:exported="false" android:screenOrientation="portrait"/>
     <!-- Random-effect shortcut: no UI, finishes in onCreate. -->
     <activity android:name=".ShortcutActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay" android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity=""/>
-    <service android:name=".TiltWallpaper" android:label="Tilt — свои обои" android:permission="android.permission.BIND_WALLPAPER" android:exported="true">
+    <service android:name=".TiltWallpaper" android:label="Parallaxia" android:permission="android.permission.BIND_WALLPAPER" android:exported="true">
       <intent-filter><action android:name="android.service.wallpaper.WallpaperService"/></intent-filter>
       <meta-data android:name="android.service.wallpaper" android:resource="@xml/wallpaper"/>
     </service>

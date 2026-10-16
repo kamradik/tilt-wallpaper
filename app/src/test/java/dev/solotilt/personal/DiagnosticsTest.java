@@ -20,7 +20,7 @@ public class DiagnosticsTest {
     @Test public void reportHasHeaderCauseAndIsCapped(){
         RuntimeException e=new RuntimeException("outer",new IllegalStateException("inner"));
         String r=CrashLog.report("CRASH",0,CrashLog.deviceLine("2.0",4,"Google","Pixel","15",35),"SoloRenderer",e);
-        assertTrue(r.startsWith("=== CRASH · "));assertTrue(r.contains("Tilt 2.0 (4) · Google Pixel · Android 15 (API 35)"));
+        assertTrue(r.startsWith("=== CRASH · "));assertTrue(r.contains("Parallaxia 2.0 (4) · Google Pixel · Android 15 (API 35)"));
         assertTrue(r.contains("Thread: SoloRenderer"));assertTrue(r.contains("Caused by: java.lang.IllegalStateException: inner"));
         Throwable deep=deep(200);
         String capped=CrashLog.report("CRASH",0,"d","t",deep);

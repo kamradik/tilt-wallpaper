@@ -16,7 +16,7 @@ import static dev.solotilt.personal.Ios.*;
 import static dev.solotilt.personal.WallpaperConfig.Preset;
 
 /** Saved looks as an inset grouped list: save the current screen, apply to home/lock/both, rename, duplicate,
- *  export and import .tilt files, delete in edit mode. Also opens .tilt files sent from other apps. */
+ *  export and import .parallaxia files, delete in edit mode. Also opens .parallaxia and .tilt files sent from other apps. */
 public final class PresetsActivity extends Activity {
     static final int EXPORT=1,IMPORT=2;static final String EXTRA_SLOT="slot";
     WallpaperConfig config;LinearLayout list;TextView edit;boolean editing,busy;String exporting;
@@ -44,7 +44,7 @@ public final class PresetsActivity extends Activity {
         if(state==null){WallpaperConfig snapshot=config.copy();Context app=getApplicationContext();io.execute(()->Presets.prune(app,snapshot));handleOpen(getIntent());}
     }
     @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);handleOpen(intent);}
-    /** A .tilt file opened from another app. */
+    /** A preset file opened from another app. */
     void handleOpen(Intent intent){if(intent!=null&&Intent.ACTION_VIEW.equals(intent.getAction())&&intent.getData()!=null)importFrom(intent.getData());}
 
     void build(){
@@ -52,7 +52,7 @@ public final class PresetsActivity extends Activity {
         list.addView(text(this,tr("Пресеты","Presets"),34,BOLD,LABEL));
         LinearLayout actions=group(this,list,null);
         link(actions,tr("Сохранить текущий экран","Save the current screen"),this::saveCurrent);
-        link(actions,tr("Импорт файла .tilt","Import a .tilt file"),this::pickImport);
+        link(actions,tr("Импорт файла пресета","Import a preset file"),this::pickImport);
         footer(this,list,tr("Пресет запоминает эффект, все его настройки, кадр и копию фото. Видео до 50 МБ сохраняется целиком, длиннее — только первый кадр.","A preset keeps the effect, all its settings, the framing and a copy of the photo. Videos up to 50 MB are kept whole; larger ones keep only their first frame."));
         LinearLayout saved=group(this,list,tr("Сохранённые","Saved"));
         if(config.presets.isEmpty()){TextView none=text(this,tr("Пока пусто. Нажми +, чтобы сохранить то, что сейчас на экране.","Nothing yet. Tap + to save what is on screen now."),15,REGULAR,SECONDARY);none.setPadding(dp(16),dp(14),dp(16),dp(14));saved.addView(none);}
@@ -91,7 +91,7 @@ public final class PresetsActivity extends Activity {
     }
     void actionsFor(Preset p){
         String[] items={tr("Применить к главному экрану","Apply to Home Screen"),tr("Применить к блокировке","Apply to Lock Screen"),tr("Применить к обоим","Apply to both"),
-            tr("Переименовать","Rename"),tr("Дублировать","Duplicate"),tr("Экспорт файла .tilt","Export as .tilt"),tr("Удалить","Delete")};
+            tr("Переименовать","Rename"),tr("Дублировать","Duplicate"),tr("Экспорт в файл","Export to a file"),tr("Удалить","Delete")};
         actionSheet(this,p.name,items,6,tr("Отмена","Cancel"),i->{
             switch(i){
                 case 0,1,2->{String target=i==0?Presets.HOME:i==1?Presets.LOCK:Presets.BOTH;

@@ -65,7 +65,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
 
         header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setClipChildren(false);stage.addView(header,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
         LinearLayout bar=new LinearLayout(this);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setClipChildren(false);header.addView(bar);
-        TextView appTitle=legible(text(this,"Tilt",34,BOLD,LABEL));bar.addView(appTitle,new LinearLayout.LayoutParams(0,-2,1));
+        TextView appTitle=legible(text(this,"Parallaxia",34,BOLD,LABEL));bar.addView(appTitle,new LinearLayout.LayoutParams(0,-2,1));
         appTitle.setOnLongClickListener(v->{tick(v);openOnboarding();return true;});
         ImageView presets=circle(this,Glyph.PLUS,tr("Пресеты","Presets"));presets.setImageDrawable(new StackIcon());bar.addView(presets,new LinearLayout.LayoutParams(dp(40),dp(40)));
         presets.setOnClickListener(v->push(PresetsActivity.class));

@@ -50,7 +50,7 @@ final class CrashLog {
         try(Writer w=new OutputStreamWriter(new FileOutputStream(log,true),StandardCharsets.UTF_8)){w.write(text);}
     }
     static String deviceLine(String version,long code,String maker,String model,String release,int sdk){
-        return String.format(Locale.ROOT,"Tilt %s (%d) · %s %s · Android %s (API %d)",version,code,maker,model,release,sdk);
+        return String.format(Locale.ROOT,"Parallaxia %s (%d) · %s %s · Android %s (API %d)",version,code,maker,model,release,sdk);
     }
     static String stamp(long time){SimpleDateFormat f=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.ROOT);return f.format(new Date(time));}
     static String entry(String kind,long time,String device,String thread,String body){

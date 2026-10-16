@@ -29,7 +29,7 @@ final class Effects {
     }
 
     static final Effect[] ALL={
-        new Effect("classic",0,0,"Классика","Classic Tilt","Фото за наклоняющимся стеклом: перспектива, мягкое размытие и тень.","Your photo behind tilting glass: perspective, soft blur and shade.","Сила наклона","Tilt strength",.8f,"Плавность","Smoothness",.45f,null,null),
+        new Effect("classic",0,0,"Классика","Classic","Фото за наклоняющимся стеклом: перспектива, мягкое размытие и тень.","Your photo behind tilting glass: perspective, soft blur and shade.","Сила наклона","Tilt strength",.8f,"Плавность","Smoothness",.45f,null,null),
         new Effect("focus",0,DEPTH,"Перевод фокуса","Focus Rack","Наклон переводит фокус между ближним и дальним планом.","Tilt shifts focus between near and far.","Размытие","Blur",.55f,"Ход фокуса","Focus travel",.55f,null,null),
         new Effect("awaken",0,0,"Пробуждение","Awakening","При разблокировке фото проявляется из мягкого светлого размытия.","On unlock your photo surfaces from a soft, bright blur.","Размытие","Blur",.6f,"Длительность","Duration",.6f,null,null),
         new Effect("light",1,0,"Живой свет","Dynamic Light","Луч и блики на рельефе фото следуют за наклоном.","A beam and surface glints follow your tilt.","Яркость","Brightness",.4f,"Тепло ↔ холод","Warm ↔ cold",.6f,"Резкость","Sharpen"),

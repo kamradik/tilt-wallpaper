@@ -18,7 +18,7 @@ import static dev.solotilt.personal.WallpaperConfig.Preset;
  * its clip as files/presets/<id>.mp4 only when the clip is at most 50 MB; larger clips are saved as their poster
  * frame (a photo preset), because preset copies are never cleaned up behind the user's back.
  *
- * A .tilt file is a ZIP with preset.json and, optionally, photo.jpg. Videos are never exported, only their poster.
+ * A .parallaxia file (.tilt before the rename, still imported) is a ZIP with preset.json and, optionally, photo.jpg. Videos are never exported, only their poster.
  * Import trusts nothing: entry count, sizes and names are bounded, nothing is written by entry name, the JSON is
  * clamped by the same parser as the config, unknown effects become Classic, and the photo is decoded at most 2048 px.
  */
@@ -92,8 +92,8 @@ final class Presets {
         try{out.write(data);a.finishWrite(out);}catch(IOException e){a.failWrite(out);throw e;}
     }
 
-    // ---------------------------------------------------------------- .tilt files
-    /** The preset as stored in a .tilt file: no id or file references, only what describes the look. */
+    // ---------------------------------------------------------------- preset files (.parallaxia, formerly .tilt)
+    /** The preset as stored in a preset file: no id or file references, only what describes the look. */
     static JSONObject exportJson(Preset p)throws JSONException{
         boolean photo=!Preset.BUILTIN.equals(p.media);
         return new JSONObject().put("format",FORMAT).put("version",1).put("name",p.name).put("media",photo?Preset.PHOTO:Preset.BUILTIN).put("builtin",p.builtin)
@@ -110,7 +110,7 @@ final class Presets {
         }catch(JSONException e){throw new IOException(e);}
     }
 
-    /** The two parts of a .tilt file, read with every limit enforced. Pure Java, unit-tested. */
+    /** The two parts of a preset file, read with every limit enforced. Pure Java, unit-tested. */
     static final class Tilt{byte[] json,photo;}
     static Tilt read(InputStream in)throws IOException{
         Tilt t=new Tilt();int entries=0;long total=0;Set<String> names=new HashSet<>();
@@ -126,8 +126,8 @@ final class Presets {
                 byte[] data=bounded(zip,Math.min(limit,MAX_TOTAL-total));total+=data.length;
                 if(JSON_ENTRY.equals(name))t.json=data;else if(PHOTO_ENTRY.equals(name))t.photo=data;  // other entries are read (bounded) and ignored
             }
-        }catch(ZipException e){throw new IOException("Not a .tilt file",e);}
-        if(t.json==null)throw new IOException("Not a .tilt file");
+        }catch(ZipException e){throw new IOException("Not a preset file",e);}
+        if(t.json==null)throw new IOException("Not a preset file");
         return t;
     }
     /** Reads one entry, failing as soon as it exceeds the limit (sizes in the header can lie). */
@@ -140,12 +140,12 @@ final class Presets {
     static Preset parse(byte[] json,boolean hasPhoto)throws IOException{
         try{
             JSONObject o=new JSONObject(new String(json,StandardCharsets.UTF_8));
-            if(!FORMAT.equals(o.optString("format"))||o.optJSONObject("profile")==null)throw new IOException("Not a .tilt file");
-            o.remove("id");Preset p=Preset.parse(o);if(p==null)throw new IOException("Not a .tilt file");
+            if(!FORMAT.equals(o.optString("format"))||o.optJSONObject("profile")==null)throw new IOException("Not a preset file");
+            o.remove("id");Preset p=Preset.parse(o);if(p==null)throw new IOException("Not a preset file");
             p.media=hasPhoto&&Preset.PHOTO.equals(o.optString("media"))?Preset.PHOTO:Preset.BUILTIN;p.created=System.currentTimeMillis();return p;
-        }catch(JSONException e){throw new IOException("Not a .tilt file",e);}
+        }catch(JSONException e){throw new IOException("Not a preset file",e);}
     }
-    /** Imports a .tilt file as a new preset (not yet added to the config). Off the main thread. */
+    /** Imports a preset file as a new preset (not yet added to the config). Off the main thread. */
     static Preset importTilt(Context c,Uri uri)throws IOException{
         Tilt t;try(InputStream in=c.getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Cannot open");t=read(in);}
         Preset p=parse(t.json,t.photo!=null);
@@ -157,6 +157,6 @@ final class Presets {
         return p;
     }
     /** A file name for export: the preset name without characters file systems reject. */
-    static String fileName(Preset p){String s=p.name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]","_").trim();return (s.isEmpty()?"preset":s)+".tilt";}
+    static String fileName(Preset p){String s=p.name.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]","_").trim();return (s.isEmpty()?"preset":s)+".parallaxia";}
     private Presets(){}
 }

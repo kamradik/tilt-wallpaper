@@ -15,8 +15,8 @@ public final class PauseTile extends TileService {
     void update(){
         Tile tile=getQsTile();if(tile==null)return;
         boolean paused=ImageStore.prefs(this).getBoolean(PerformanceController.KEY_PAUSED,false),en=WallpaperConfig.load(this).en();
-        tile.setState(paused?Tile.STATE_INACTIVE:Tile.STATE_ACTIVE);tile.setLabel("Tilt");
+        tile.setState(paused?Tile.STATE_INACTIVE:Tile.STATE_ACTIVE);tile.setLabel("Parallaxia");
         String sub=paused?(en?"Paused":"Пауза"):(en?"Running":"Работает");tile.setSubtitle(sub);
-        tile.setStateDescription(sub);tile.setContentDescription(en?"Tilt wallpaper":"Обои Tilt");tile.updateTile();
+        tile.setStateDescription(sub);tile.setContentDescription(en?"Parallaxia wallpaper":"Обои Parallaxia");tile.updateTile();
     }
 }

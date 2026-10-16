@@ -108,7 +108,7 @@ public class PresetsScheduleTest {
         assertEquals("07:05",Schedule.hhmm(425));
     }
 
-    // ---------------------------------------------------------------- .tilt files
+    // ---------------------------------------------------------------- preset files
     static byte[] zip(Object... nameAndData)throws IOException{
         ByteArrayOutputStream out=new ByteArrayOutputStream();
         try(ZipOutputStream z=new ZipOutputStream(out)){for(int i=0;i<nameAndData.length;i+=2){z.putNextEntry(new ZipEntry((String)nameAndData[i]));z.write((byte[])nameAndData[i+1]);z.closeEntry();}}
@@ -118,7 +118,7 @@ public class PresetsScheduleTest {
         return new JSONObject().put("format","tilt-preset").put("version",1).put("name","Shared").put("media","photo")
             .put("profile",new JSONObject().put("effect",effect).put("scale",1.3).put("params",new JSONObject().put("holo",new JSONArray().put(.4).put(.6).put(1)))).toString().getBytes(StandardCharsets.UTF_8);
     }
-    static void rejects(byte[] file){try{Presets.read(new ByteArrayInputStream(file));fail("accepted a bad .tilt file");}catch(IOException expected){}}
+    static void rejects(byte[] file){try{Presets.read(new ByteArrayInputStream(file));fail("accepted a bad preset file");}catch(IOException expected){}}
     @Test public void tiltFileRoundTripsAndValidates()throws Exception{
         byte[] photo=new byte[5000];new Random(1).nextBytes(photo);
         Presets.Tilt t=Presets.read(new ByteArrayInputStream(zip("preset.json",presetJson("holo"),"photo.jpg",photo,"readme.txt","hi".getBytes(StandardCharsets.UTF_8))));
@@ -131,7 +131,7 @@ public class PresetsScheduleTest {
         // The exported JSON parses back to the same look.
         WallpaperConfig.Preset back=Presets.parse(Presets.exportJson(p).toString().getBytes(StandardCharsets.UTF_8),true);
         assertEquals(WallpaperConfig.writeProfile(p.profile).toString(),WallpaperConfig.writeProfile(back.profile).toString());
-        WallpaperConfig.Preset named=back.copy();named.name="a/b?";assertEquals("a_b_.tilt",Presets.fileName(named));
+        WallpaperConfig.Preset named=back.copy();named.name="a/b?";assertEquals("a_b_.parallaxia",Presets.fileName(named));
     }
     @Test public void tiltImportRejectsZipSlipBombsAndJunk()throws Exception{
         byte[] json=presetJson("holo");
