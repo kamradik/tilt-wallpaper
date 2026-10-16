@@ -1,9 +1,11 @@
 package dev.solotilt.personal;
+
 import android.content.*;
 import android.graphics.*;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.util.AtomicFile;
+import android.util.Log;
 import java.io.*;
 
 final class ImageStore {
@@ -48,18 +50,23 @@ final class ImageStore {
         return null;
     }
     /** Imports the whole clip (see the trimming overload); longer than 3 minutes is refused, not cut. */
-    static void importVideo(Context c,Uri uri,String slot)throws IOException{importVideo(c,uri,slot,0,-1);}
+    static void importVideo(Context c,Uri uri,String slot)throws IOException{importVideo(c,uri,slot,0,-1,null);}
     /**
      * Imports [startUs,endUs] of a clip into private storage for the slot; endUs<=0 means to the end. Call off the main
-     * thread. VideoImport.remux keeps only the video track, cut from the sync frame at or before startUs, and validates
-     * it; its first frame becomes the slot photo (poster), then the clip replaces the old one by rename, so a running
+     * thread. With a progress callback (a clip the user picked) VideoTranscode re-encodes it: frame-exact cut, scaled to
+     * the wallpaper's size, frequent keyframes for smooth Tilt Scrub. Without one (a preset's clip, already processed),
+     * or when the device's codecs cannot transcode, VideoImport.remux keeps only the video track, cut from the sync
+     * frame at or before startUs. The result is validated; its first frame becomes the slot photo (poster), then the clip replaces the old one by rename, so a running
      * player keeps reading the previous file until the revision bump makes engines reload. Throws IOException with a
      * readable message.
      */
-    static void importVideo(Context c,Uri uri,String slot,long startUs,long endUs)throws IOException{
+    static void importVideo(Context c,Uri uri,String slot,long startUs,long endUs,VideoTranscode.Progress progress)throws IOException{
         File target=videoFile(c,slot),temp=new File(c.getFilesDir(),target.getName()+".part");Bitmap poster=null;
         try{
-            VideoImport.remux(c,uri,startUs,endUs,temp);
+            boolean done=false;
+            if(progress!=null)try{VideoTranscode.transcode(c,uri,startUs,endUs,temp,progress);done=true;}
+            catch(VideoTranscode.Unsupported e){Log.w("SoloVideo","Transcoding unavailable, remuxing instead",e);temp.delete();}
+            if(!done)VideoImport.remux(c,uri,startUs,endUs,temp);
             try(MediaMetadataRetriever r=new MediaMetadataRetriever()){
                 r.setDataSource(temp.getPath());
                 if(!"yes".equals(r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO)))throw new IOException(videoProblem(false,1,1));

@@ -76,4 +76,19 @@ public class VideoToolsTest {
         assertTrue(ImageStore.isRevisionKey(ImageStore.key("video_revision",WallpaperConfig.LOCK)));
         assertEquals("scrub_lock",ImageStore.key("scrub",WallpaperConfig.LOCK));
     }
+
+    @Test public void transcodeSizeCapsTheLongSideKeepsAspectAndStaysEven(){
+        assertArrayEquals(new int[]{1280,720},VideoTranscode.outputSize(3840,2160,1280));
+        assertArrayEquals(new int[]{720,1280},VideoTranscode.outputSize(2160,3840,1280));
+        assertArrayEquals(new int[]{640,360},VideoTranscode.outputSize(640,360,1280));  // never upscales
+        int[] odd=VideoTranscode.outputSize(1921,1081,1280);
+        assertEquals(0,odd[0]%2);assertEquals(0,odd[1]%2);assertTrue(odd[0]<=1280);
+        assertArrayEquals(new int[]{2,2},VideoTranscode.outputSize(1,1,1280));
+    }
+    @Test public void transcodeBitRateKeepsThreeMinutesUnderTheCap(){
+        int r=VideoTranscode.bitRate(1280,720,60);
+        assertTrue(r<=12_000_000&&r>=2_000_000);
+        assertTrue("3 min at the highest rate fits",12_000_000L/8*180<ImageStore.MAX_VIDEO_BYTES);
+        assertEquals(2_000_000,VideoTranscode.bitRate(320,240,15));
+    }
 }

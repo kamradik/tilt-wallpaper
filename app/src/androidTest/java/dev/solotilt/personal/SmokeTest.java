@@ -72,6 +72,63 @@ public final class SmokeTest {
         check(find(any("Диагностика","Diagnostics"))!=null,"back in settings");  // the list is still scrolled down to it
     }
 
+    /** The transcoder cuts on the exact frame: a clip whose frame i is grey level 5*i, keyframes 2 s apart, cut at
+     *  1.0 s must start on frame 30 (grey 150), where a keyframe-based copy would start on frame 0. */
+    public void testVideoTrimIsFrameExact()throws Exception{
+        File source=new File(app.getCacheDir(),"ramp.mp4"),out=new File(app.getCacheDir(),"ramp-cut.mp4");
+        writeRamp(source,90);
+        float[] last={0};
+        VideoTranscode.transcode(app,android.net.Uri.fromFile(source),1_000_000,2_500_000,out,f->last[0]=f);
+        try(android.media.MediaMetadataRetriever r=new android.media.MediaMetadataRetriever()){
+            r.setDataSource(out.getPath());
+            long ms=Long.parseLong(r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION));
+            check(Math.abs(ms-1500)<=120,"cut length "+ms+" ms");
+            check(grey(r,0)>=140&&grey(r,0)<=160,"first frame grey "+grey(r,0)+" (want 150: frame 30)");
+            check(grey(r,500_000)>=215&&grey(r,500_000)<=235,"frame at 0.5 s grey "+grey(r,500_000)+" (want 225)");
+        }
+        check(last[0]>.9f,"progress reached "+last[0]);
+        source.delete();out.delete();
+    }
+    static int grey(android.media.MediaMetadataRetriever r,long us){
+        Bitmap b=r.getFrameAtTime(us,android.media.MediaMetadataRetriever.OPTION_CLOSEST);check(b!=null,"no frame at "+us);
+        int c=b.getPixel(b.getWidth()/2,b.getHeight()/2);b.recycle();return ((c>>16&255)+(c>>8&255)+(c&255))/3;
+    }
+    /** Encodes frames of flat grey 5*i at 30 fps, 320x180, a keyframe every 2 s. */
+    static void writeRamp(File file,int frames)throws Exception{
+        android.media.MediaFormat f=android.media.MediaFormat.createVideoFormat("video/avc",320,180);
+        f.setInteger(android.media.MediaFormat.KEY_COLOR_FORMAT,android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+        f.setInteger(android.media.MediaFormat.KEY_BIT_RATE,2_000_000);f.setInteger(android.media.MediaFormat.KEY_FRAME_RATE,30);f.setInteger(android.media.MediaFormat.KEY_I_FRAME_INTERVAL,2);
+        android.media.MediaCodec enc=android.media.MediaCodec.createEncoderByType("video/avc");enc.configure(f,null,null,android.media.MediaCodec.CONFIGURE_FLAG_ENCODE);
+        android.view.Surface input=enc.createInputSurface();enc.start();
+        android.media.MediaMuxer mux=new android.media.MediaMuxer(file.getPath(),android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        android.opengl.EGLDisplay d=android.opengl.EGL14.eglGetDisplay(android.opengl.EGL14.EGL_DEFAULT_DISPLAY);int[] v=new int[2];android.opengl.EGL14.eglInitialize(d,v,0,v,1);
+        android.opengl.EGLConfig[] cfg=new android.opengl.EGLConfig[1];int[] n=new int[1];
+        android.opengl.EGL14.eglChooseConfig(d,new int[]{android.opengl.EGL14.EGL_RED_SIZE,8,android.opengl.EGL14.EGL_GREEN_SIZE,8,android.opengl.EGL14.EGL_BLUE_SIZE,8,android.opengl.EGL14.EGL_RENDERABLE_TYPE,android.opengl.EGL14.EGL_OPENGL_ES2_BIT,0x3142,1,android.opengl.EGL14.EGL_NONE},0,cfg,0,1,n,0);
+        android.opengl.EGLContext ctx=android.opengl.EGL14.eglCreateContext(d,cfg[0],android.opengl.EGL14.EGL_NO_CONTEXT,new int[]{android.opengl.EGL14.EGL_CONTEXT_CLIENT_VERSION,2,android.opengl.EGL14.EGL_NONE},0);
+        android.opengl.EGLSurface es=android.opengl.EGL14.eglCreateWindowSurface(d,cfg[0],input,new int[]{android.opengl.EGL14.EGL_NONE},0);
+        android.opengl.EGL14.eglMakeCurrent(d,es,es,ctx);
+        android.media.MediaCodec.BufferInfo info=new android.media.MediaCodec.BufferInfo();int track=-1;boolean eos=false;
+        for(int i=0;i<=frames&&!eos;){
+            if(i<frames){float g=Math.min(255,5*i)/255f;android.opengl.GLES20.glClearColor(g,g,g,1);android.opengl.GLES20.glClear(android.opengl.GLES20.GL_COLOR_BUFFER_BIT);
+                android.opengl.EGLExt.eglPresentationTimeANDROID(d,es,i*1_000_000_000L/30);android.opengl.EGL14.eglSwapBuffers(d,es);}
+            else enc.signalEndOfInputStream();
+            i++;
+            while(true){
+                int o=enc.dequeueOutputBuffer(info,i>frames?10_000:0);
+                if(o==android.media.MediaCodec.INFO_TRY_AGAIN_LATER){if(i>frames)continue;break;}
+                if(o==android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED){track=mux.addTrack(enc.getOutputFormat());mux.start();continue;}
+                if(o<0)continue;
+                java.nio.ByteBuffer data=enc.getOutputBuffer(o);
+                if((info.flags&android.media.MediaCodec.BUFFER_FLAG_CODEC_CONFIG)==0&&info.size>0&&track>=0){data.position(info.offset).limit(info.offset+info.size);mux.writeSampleData(track,data,info);}
+                enc.releaseOutputBuffer(o,false);
+                if((info.flags&android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)!=0){eos=true;break;}
+            }
+        }
+        mux.stop();mux.release();enc.stop();enc.release();
+        android.opengl.EGL14.eglMakeCurrent(d,android.opengl.EGL14.EGL_NO_SURFACE,android.opengl.EGL14.EGL_NO_SURFACE,android.opengl.EGL14.EGL_NO_CONTEXT);
+        android.opengl.EGL14.eglDestroySurface(d,es);android.opengl.EGL14.eglDestroyContext(d,ctx);input.release();
+    }
+
     // ---- small UiAutomation toolkit ----
     static Pattern any(String... labels){StringBuilder b=new StringBuilder();for(String l:labels)b.append(b.length()==0?"":"|").append(Pattern.quote(l));return Pattern.compile(b.toString(),Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE);} // section captions are upper case
     static void check(boolean ok,String what){if(!ok)throw new AssertionError(what);}

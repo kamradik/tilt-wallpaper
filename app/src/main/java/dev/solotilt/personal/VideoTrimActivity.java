@@ -171,7 +171,9 @@ public final class VideoTrimActivity extends Activity implements TextureView.Sur
         final long s=start*1000,e=end>=duration?-1:end*1000;final Context app=getApplicationContext();final String target=slot;final Uri source=uri;
         io.execute(()->{
             String error=null;
-            try{ImageStore.importVideo(app,source,target,s,e);DepthMapManager.prune(app);}
+            // Progress from the transcoder, shown on the button at most every few percent.
+            int[] shown={-1};VideoTranscode.Progress progress=f->{int pct=Math.round(f*100);if(pct>=shown[0]+3){shown[0]=pct;main.post(()->{if(!closed)done.setText(tr("Сохранение… ","Saving… ")+pct+"%");});}};
+            try{ImageStore.importVideo(app,source,target,s,e,progress);DepthMapManager.prune(app);}
             catch(Exception|OutOfMemoryError ex){Log.w("SoloVideo","Import failed",ex);error=ex.getMessage()==null?"":ex.getMessage();}
             final String failure=error;
             main.post(()->{
