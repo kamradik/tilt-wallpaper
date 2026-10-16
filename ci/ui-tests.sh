@@ -2,6 +2,7 @@
 # Runs the UI smoke tests on the CI emulator and writes what happened into the job summary, which the public run page
 # shows without signing in (raw logs and artifacts need a GitHub login).
 set -u
+adb logcat -G 16M 2>/dev/null || true  # a bigger buffer, so the whole run survives in logcat.txt
 ./gradlew connectedDebugAndroidTest --stacktrace > ui-tests.log 2>&1; code=$?
 adb logcat -d -v brief > logcat.txt 2>/dev/null || true
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}

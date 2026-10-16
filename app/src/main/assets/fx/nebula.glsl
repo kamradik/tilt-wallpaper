@@ -30,6 +30,8 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     float starRand = hash2(starGrid).x;
     float star = step(0.96, starRand) * smoothstep(0.18, 0.02, length(starUv)) * (0.6 + 0.4 * sin(u_time * 4.0 + starRand * 100.0)) * (1.0 - fgMask * 0.85);
     
-    vec3 result = base + nebulaColor * nebulaDensity + vec3(star * 1.2 * params.y);
-    return result;
+    // Screened on and kept off bright areas, so a lit subject is not tinted magenta.
+    float lum = dot(base, vec3(0.2126, 0.7152, 0.0722));
+    vec3 glow = nebulaColor * nebulaDensity * (1.0 - 0.7 * smoothstep(0.45, 0.9, lum)) + vec3(star * 1.2 * params.y);
+    return 1.0 - (1.0 - base) * (1.0 - clamp(glow, 0.0, 1.0));
 }

@@ -37,7 +37,12 @@ public final class SmokeTest {
      *  instrumentation returned at once and, on a cold emulator, sometimes left the launcher in front. */
     void launch()throws IOException{
         check(app.getPackageManager().getLaunchIntentForPackage(PKG)!=null,"no launch intent");
-        shell("am start -W --activity-clear-task -n "+PKG+"/.MainActivity");
+        // After a heavy test (the depth network) a cold start can lose the race with the launcher: try twice.
+        for(int attempt=0;attempt<2;attempt++){
+            shell("am start -W --activity-clear-task -n "+PKG+"/.MainActivity");
+            long end=SystemClock.uptimeMillis()+10_000;
+            while(SystemClock.uptimeMillis()<end){AccessibilityNodeInfo r=ui.getRootInActiveWindow();if(r!=null&&PKG.contentEquals(r.getPackageName()))return;pause(250);}
+        }
     }
     void tearDown(){ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);}
 

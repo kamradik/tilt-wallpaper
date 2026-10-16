@@ -17,6 +17,9 @@ if os.path.exists('logcat.txt'):
         if 'FATAL EXCEPTION' in l: note("App crash (logcat)","\n".join(lines[i:i+30]))
     errs=[l for l in lines if re.match(r'[EW]/(Solo|TestRunner|SmokeRunner|AndroidRuntime|Tilt)',l)]
     if errs: note("App errors (logcat)","\n".join(errs[-30:]),"warning")
+    # The app's lifecycle as the system saw it: starts, deaths, ANRs and low-memory kills.
+    life=[l for l in lines if ('dev.solotilt' in l and re.search(r'ActivityManager|ActivityTaskManager|Displayed|died|Kill|START',l)) or re.search(r'ANR in|lowmemorykiller|am_kill',l)]
+    if life: note("App lifecycle (logcat)","\n".join(life[-40:]),"warning")
 shots=sorted(os.listdir('build/screenshots')) if os.path.isdir('build/screenshots') else []
 note("Screenshots",", ".join(shots) or "none","notice")
 # Small JPEG copies of the screenshots as base64 notices, so a reviewer without repository access can still look at them.
