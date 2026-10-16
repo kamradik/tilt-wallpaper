@@ -72,7 +72,9 @@ public final class SettingsActivity extends Activity {
         LinearLayout tint=group(this,list,tr("Оформление","Appearance"));
         Toggle fromPhoto=new Toggle(this);fromPhoto.setOn(Accent.enabled(this),false);fromPhoto.setContentDescription(tr("Цвет из обоев","Colour from wallpaper"));fromPhoto.setHapticFeedbackEnabled(config.haptics);
         fromPhoto.listener=on->{Accent.setEnabled(this,on);recreate();};row(this,tint,tr("Цвет из обоев","Colour from wallpaper"),fromPhoto);
-        footer(this,list,tr("Переключатели, ползунки и ссылки окрашиваются в главный цвет твоих обоев.","Switches, sliders and links take on the main colour of your wallpaper."));
+        Toggle systemType=new Toggle(this);systemType.setOn(Ios.systemFont,false);systemType.setContentDescription(tr("Системный шрифт","System font"));systemType.setHapticFeedbackEnabled(config.haptics);
+        systemType.listener=on->{ImageStore.prefs(this).edit().putBoolean(Ios.SYSTEM_FONT,on).commit();Ios.fonts(getApplicationContext());recreate();};row(this,tint,tr("Системный шрифт","System font"),systemType);
+        footer(this,list,tr("Переключатели, ползунки и ссылки окрашиваются в главный цвет твоих обоев. Шрифты Parallaxia: Unbounded для заголовков и Inter для текста.","Switches, sliders and links take on the main colour of your wallpaper. Parallaxia’s type: Unbounded for titles, Inter for text."));
 
         LinearLayout about=group(this,list,tr("О приложении","About"));
         String version="";try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(Exception ignored){}

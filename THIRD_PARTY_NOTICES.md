@@ -1,6 +1,6 @@
 # Происхождение материалов
 
-- В версии 1.1 аватарка и MP3 для страницы автора предоставлены пользователем и встроены без изменения. Это не заявление о лицензии на их публичное распространение. Интерфейс в стиле iOS нарисован кодом приложения: шрифты, иконки и ресурсы Apple не используются.
+- В версии 1.1 аватарка и MP3 для страницы автора предоставлены пользователем и встроены без изменения. Это не заявление о лицензии на их публичное распространение. Интерфейс в стиле iOS нарисован кодом приложения: шрифты, иконки и ресурсы Apple не используются (шрифты приложения — Inter и Unbounded, см. ниже).
 
 - Solo Tilt APK и GLSL-ресурсы загружены 19.09.2026 с https://solotilt.com/downloads/solo-tilt-android.apk для анализа запрошенного пользователем эффекта.
 - Файлы `quad.glsl`, `fold.glsl`, `blur.glsl` перенесены из ресурсов APK без изменения. В исходном fragment shader указано: fixed-observer ray projection, adapted from DuoLikeAnimation (MIT).
@@ -11,6 +11,12 @@
 - Репозиторий `upstream` — отдельно загруженная публичная веб-реализация https://github.com/soloiaros/iphone-solo. Она не использована как исходный код Android-приложения и не включена в архив результата.
 
 В собственной сборке нет ключей, сертификата подписи или backend-частей оригинального приложения. Ключ подписи персональной сборки создан локально.
+
+## Шрифты, с версии 2.6
+
+- `app/src/main/assets/fonts/Inter.ttf` — **Inter** (вариативный, оси wght и opsz), Copyright 2020 The Inter Project Authors, https://github.com/rsms/inter, лицензия SIL Open Font License 1.1 (`third_party/fonts/OFL-Inter.txt`). Файл `ofl/inter/Inter[opsz,wght].ttf` из https://github.com/google/fonts, git blob `047c92f6e2212473dc436020afed689527076d44`, SHA-256 `29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031`, загружен 16.10.2026.
+- `app/src/main/assets/fonts/Unbounded.ttf` — **Unbounded** (вариативный, ось wght), Copyright 2022 The Unbounded Project Authors, https://github.com/googlefonts/unbounded, лицензия SIL Open Font License 1.1 (`third_party/fonts/OFL-Unbounded.txt`). Файл `ofl/unbounded/Unbounded[wght].ttf` из https://github.com/google/fonts, git blob `e3c064ddfa3acdd3af2e0f06cd2f2288cc4fcae3`, SHA-256 `323b511be380c8d474ef030686b71aedde501f8d9cd46da558b7c40454372c3f`, загружен 16.10.2026.
+- Файлы шрифтов встроены без изменений; зарезервированные имена шрифтов не используются для изменённых версий.
 
 ## Spatial Scene (карта глубины), с версии 2.1
 

@@ -123,7 +123,7 @@ final class Moments {
         Intro(Context c,Runnable gone){
             super(c);this.gone=gone;setClickable(true);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
             edge.setStyle(Paint.Style.STROKE);edge.setStrokeWidth(px(c,1));edge.setColor(0x66ffffff);
-            word.setColor(Color.WHITE);word.setTextAlign(Paint.Align.CENTER);word.setTypeface(font(BOLD));word.setTextSize(px(c,30));word.setLetterSpacing(.02f);
+            word.setColor(Color.WHITE);word.setTextAlign(Paint.Align.CENTER);word.setTypeface(display(BOLD));word.setTextSize(px(c,26));word.setLetterSpacing(.02f);
             setOnClickListener(v->leave());
             postDelayed(this::leave,LENGTH);
         }

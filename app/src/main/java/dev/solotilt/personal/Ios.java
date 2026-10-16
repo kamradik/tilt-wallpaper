@@ -31,16 +31,43 @@ final class Ios {
 
     static float px(Context c,float dp){return dp*c.getResources().getDisplayMetrics().density;}
     static int dp(Context c,float dp){return Math.round(px(c,dp));}
-    static Typeface font(int weight){return Typeface.create(Typeface.SANS_SERIF,weight,false);}
+    // ---------------------------------------------------------------- type
+    // Parallaxia's type: Inter for text (variable weight and optical size, so small labels open up and large ones
+    // tighten) and Unbounded, wide and round, for large titles and the name. Both SIL OFL, in assets/fonts.
+    // The system font remains a setting; a font that fails to load falls back to it.
+    static android.content.res.AssetManager fontAssets;static volatile boolean systemFont;
+    static final Map<Integer,Typeface> FACES=new HashMap<>();
+    static final String SYSTEM_FONT="system_font";
+    static void fonts(Context c){fontAssets=c.getAssets();systemFont=c.getSharedPreferences("wallpaper",0).getBoolean(SYSTEM_FONT,false);synchronized(FACES){FACES.clear();}}
+    /** Text at the given weight (Inter, optical size for ~15 sp). */
+    static Typeface font(int weight){return face(false,weight,15);}
+    /** Text at the given weight and size: Inter's optical size follows the size. */
+    static Typeface font(int weight,float sp){return face(false,weight,sp);}
+    /** Large titles and the wordmark (Unbounded). */
+    static Typeface display(int weight){return face(true,weight,32);}
+    static Typeface face(boolean display,int weight,float sp){
+        if(systemFont||fontAssets==null)return Typeface.create(Typeface.SANS_SERIF,weight,false);
+        int opsz=Math.round(clamp(sp,14,32)),w=display?Math.max(300,weight-100):weight,key=(display?100000:0)+w*100+(display?0:opsz);
+        synchronized(FACES){
+            Typeface t=FACES.get(key);if(t!=null)return t;
+            try{t=new Typeface.Builder(fontAssets,display?"fonts/Unbounded.ttf":"fonts/Inter.ttf").setFontVariationSettings(display?"'wght' "+w:"'wght' "+w+", 'opsz' "+opsz).setWeight(Math.min(1000,Math.max(1,w))).build();}
+            catch(RuntimeException e){t=null;}
+            if(t==null)t=Typeface.create(Typeface.SANS_SERIF,weight,false);
+            FACES.put(key,t);return t;
+        }
+    }
     static int mix(int a,int b,float t){return (int)new ArgbEvaluator().evaluate(Math.max(0,Math.min(1,t)),a,b);}
     static float clamp(float v,float lo,float hi){return Math.max(lo,Math.min(hi,v));}
     /** UIScrollView's rubber band: the further past the edge, the less the content follows the finger. */
     static float rubber(float offset,float dimension){float d=Math.max(1e-3f,dimension),x=Math.abs(offset);return Math.signum(offset)*(1-1/(x*.55f/d+1))*d;}
 
-    /** Text with SF-like tracking: tight for large titles, neutral for captions. */
+    /** Text in the app's type. From 28 sp it is a title in Unbounded, set a size smaller since the face is wide;
+     *  below, Inter with tracking that tightens as the size grows. */
     static TextView text(Context c,CharSequence value,float sp,int weight,int color){
-        TextView t=new TextView(c);t.setText(value);t.setTextSize(TypedValue.COMPLEX_UNIT_SP,sp);t.setTypeface(font(weight));t.setTextColor(color);
-        t.setLetterSpacing(sp>=28?-.015f:sp>=15?-.01f:0);return t;
+        TextView t=new TextView(c);t.setText(value);t.setTextColor(color);
+        boolean title=sp>=28&&!systemFont&&fontAssets!=null;
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP,title?sp*.8f:sp);t.setTypeface(title?display(weight):font(weight,sp));
+        t.setLetterSpacing(title?-.02f:sp>=20?-.012f:sp>=15?-.006f:.004f);if(title)t.setIncludeFontPadding(false);return t;
     }
     /** A soft contact shadow keeps white labels readable where glass sits over a bright patch of the photo. */
     static <T extends TextView> T legible(T t){t.setShadowLayer(px(t.getContext(),3),0,px(t.getContext(),.5f),0x59000000);return t;}
