@@ -96,7 +96,9 @@ final class MlDepth {
         float s=Math.min(1,REFINED/(float)Math.max(width,height));return new int[]{Math.max(1,Math.round(width*s)),Math.max(1,Math.round(height*s))};
     }
 
-    static Bitmap estimate(Context c,Bitmap image)throws IOException{
+    static Bitmap estimate(Context c,Bitmap image)throws IOException{return estimate(c,image,false);}
+    /** fast: one pass instead of the mirrored pair (video keyframes, where there are many maps to make). */
+    static Bitmap estimate(Context c,Bitmap image,boolean fast)throws IOException{
         int[] size=inputSize(image.getWidth(),image.getHeight());int w=size[0],h=size[1];
         Bitmap small=Bitmap.createScaledBitmap(image,w,h,true);int[] pixels=new int[w*h];small.getPixels(pixels,0,w,0,0,w,h);if(small!=image)small.recycle();
         long started=android.os.SystemClock.elapsedRealtime();
@@ -108,7 +110,7 @@ final class MlDepth {
                 try(OrtSession session=env.createSession(asset(c,MODEL),options)){
                     String name=session.getInputNames().iterator().next();int[] shape=new int[2];
                     float[] plain=infer(env,session,name,pixels,w,h,shape);
-                    float[] mirrored=mirror(infer(env,session,name,mirror(pixels,w,h),w,h,shape),shape[0],shape[1]);
+                    float[] mirrored=fast?plain:mirror(infer(env,session,name,mirror(pixels,w,h),w,h,shape),shape[0],shape[1]);
                     long inferred=android.os.SystemClock.elapsedRealtime()-started;
                     // Each pass is stretched on its own before averaging, so a different offset or scale cannot bias one side.
                     float[] a=normalize(plain),b=normalize(mirrored),depth=new float[a.length];for(int i=0;i<a.length;i++)depth[i]=(a[i]+b[i])*.5f;

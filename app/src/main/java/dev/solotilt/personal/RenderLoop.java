@@ -31,6 +31,9 @@ final class RenderLoop {
     final GlScene.Pass current=new GlScene.Pass(),outgoing=new GlScene.Pass();boolean hasCurrent,fading;
     /** The active profile's second layer, drawn over current (and over a crossfade in progress). */
     final GlScene.Pass layered=new GlScene.Pass();boolean hasLayer;
+    /** Per layer: keyframe times of the clip's depth set (VideoDepth) once ready, the keyframe whose map is uploaded,
+     *  and whether one is being decoded. */
+    final long[][] videoDepth=new long[2][];final int[] videoDepthShown={-1,-1};final boolean[] videoDepthLoading=new boolean[2];
     // Per layer video: the media key whose clip the layer plays (null: a photo), its player (lives as long as the EGL
     // context, since its SurfaceTexture belongs to it), a key that failed to play, and where playback was when GL went away.
     final String[] videoKeys=new String[2],brokenVideo=new String[2],resumeKeys=new String[2];final int[] resumeAt=new int[2];final VideoPlayer[] players=new VideoPlayer[2];
@@ -131,11 +134,15 @@ final class RenderLoop {
         final boolean[] want=new boolean[2],needDepth=new boolean[2],missingDepth=new boolean[2];final String[] keys=new String[2],videos=new String[2],loaded=loadedKeys.clone();
         for(int i=0;i<2;i++){want[i]=needed(i);needDepth[i]=needsDepth(i);missingDepth[i]=needDepth[i]&&!depthReady[i];}
         PREPARE.execute(()->{
-            final Bitmap[] photos=new Bitmap[2],maps=new Bitmap[2];final boolean[] imported=new boolean[2];String failure=null;
+            final Bitmap[] photos=new Bitmap[2],maps=new Bitmap[2];final boolean[] imported=new boolean[2];String failure=null;final long[][] keyframes=new long[2][];
             for(int i=0;i<2;i++){
                 if(!want[i])continue;String slot=mediaSlot(i);keys[i]=DepthMapManager.key(context,slot);
                 // A video slot's photo is its poster frame: it is the still fallback, the first frame shown and the depth source.
                 if(ImageStore.isVideo(context,slot))videos[i]=keys[i]+(ImageStore.isScrub(context,slot)?VideoPlayer.SCRUB:""); // Tilt Scrub: another key, another player
+                // A depth effect on a clip: per-keyframe maps when the set exists, else build it in the background
+                // (the poster's map serves until then) and prepare again when it is done.
+                if(needDepth[i]&&videos[i]!=null&&!DepthMapManager.manual(context,keys[i])){keyframes[i]=VideoDepth.ready(context,keys[i]);
+                    if(keyframes[i]==null)VideoDepth.ensure(context,slot,keys[i],()->handler.post(this::prepare));}
                 if(keys[i].equals(loaded[i])&&!missingDepth[i])continue;
                 try{photos[i]=ImageStore.load(context,slot);
                     if(needDepth[i])try{maps[i]=DepthMapManager.load(context,photos[i],keys[i]);imported[i]=DepthMapManager.manual(context,keys[i]);}catch(Exception|OutOfMemoryError e){Log.w("SoloDepth","Preparation failed",e);failure="depth";}
@@ -146,6 +153,7 @@ final class RenderLoop {
                 if(closed||request!=generation){recycle(photos);recycle(maps);return;}
                 loading=false;try{
                     System.arraycopy(videos,0,videoKeys,0,2);
+                    for(int i=0;i<2;i++)if(want[i]){videoDepth[i]=keyframes[i];videoDepthShown[i]=-1;}
                     for(int i=0;i<2;i++){
                         if(photos[i]==null)continue;
                         if(bitmaps[i]!=null)bitmaps[i].recycle();bitmaps[i]=photos[i];photos[i]=null;loadedKeys[i]=keys[i];depthReady[i]=false;
@@ -193,6 +201,22 @@ final class RenderLoop {
             // Players report upright sizes on current platforms; the poster (always upright) catches one that does not.
             if(poster!=null&&vw!=vh&&poster.getWidth()!=poster.getHeight()&&(vw>vh)!=(poster.getWidth()>poster.getHeight())){int t=vw;vw=vh;vh=t;}
             try{scene.blitVideo(i,p.matrix,vw,vh,p.loopMix);if(p.firstFrame){scene.captureLoop(i);p.loopCaptured=true;}}catch(Exception e){Log.w("SoloVideo","Video frame copy failed",e);videoFailed(p);}
+        }
+    }
+    /** Render thread: swaps in the depth map of the keyframe nearest each playing clip's position (decoded off-thread). */
+    void followVideoDepth(){
+        for(int i=0;i<2;i++){
+            VideoPlayer p=players[i];long[] times=videoDepth[i];
+            if(p==null||times==null||videoDepthLoading[i]||!depthReady[i]||!(current.layer==i&&current.effect.has(Effects.DEPTH)))continue;
+            int k=VideoDepth.nearest(times,p.scrub?Math.max(0,p.scrubShown):p.position());if(k==videoDepthShown[i])continue;
+            videoDepthLoading[i]=true;final int layer=i,frame=k;final String key=loadedKeys[i];final int request=generation;
+            PREPARE.execute(()->{
+                Bitmap map=key==null?null:VideoDepth.load(context,key,frame);
+                handler.post(()->{videoDepthLoading[layer]=false;
+                    if(map==null)return;
+                    try{if(!closed&&request==generation&&scene!=null){scene.uploadDepth(layer,map);videoDepthShown[layer]=frame;}}catch(Exception e){Log.w("SoloDepth","Keyframe depth upload failed",e);}
+                    finally{map.recycle();}});
+            });
         }
     }
     void videoFailed(VideoPlayer p){
@@ -259,6 +283,7 @@ final class RenderLoop {
             if(scene.blurPending()&&!blurQueued){blurQueued=true;handler.post(blurStep);}
             float transition=config.reduceMotion?1:Math.min(1,(start-transitionStart)/(float)transitionNanos);
             fading=transition<1;boolean video=updatePlayback();latchVideo();if(scene==null)return; // a failed poster restore released GL
+            followVideoDepth();
             touch[2]=touchTime==0?99:(start-touchTime)*1e-9f;touch[3]=config.touch&&!config.reduceMotion?1:0;
             if(current.effect.has(Effects.WIPE)){if(wipeActive)decayWipe(dt*1e-3f);if(wipeDirty){wipeBuffer.position(0);wipeBuffer.put(wipeGrid);scene.updateWipe(wipeBuffer);wipeDirty=false;}}
             updateEnvironment(start,dt);
