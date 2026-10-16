@@ -1,5 +1,5 @@
 <resources>
-  <string name="description">Живые обои с параллаксом: твоё фото или видео оживает при наклоне телефона. 32 эффекта.</string>
+  <string name="description">Живые обои с параллаксом: твоё фото или видео оживает при наклоне телефона. 33 эффекта.</string>
   <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans-serif</item>
     <item name="android:colorAccent">#0A84FF</item>
