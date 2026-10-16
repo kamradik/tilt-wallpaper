@@ -403,6 +403,7 @@ final class Ios {
             SPEC.setStrokeWidth(w*1.2f);SPEC.setAlpha(alpha);c.drawPath(path,SPEC);
         }
         /** The AGSL glass (see GLASS_AGSL): the body in one pass, then the fine hairline on top. False if unavailable. */
+        @android.annotation.TargetApi(33)  // called only when liquid() holds
         boolean drawLiquid(Canvas c,Bitmap b,float t){
             try{
                 android.graphics.RuntimeShader s=(android.graphics.RuntimeShader)runtime;
