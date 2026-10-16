@@ -72,6 +72,27 @@ public final class SmokeTest {
         check(find(any("Диагностика","Diagnostics"))!=null,"back in settings");  // the list is still scrolled down to it
     }
 
+    /** The second layer reads the composed frame the right way up: a photo red on top and blue below, Classic with
+     *  Retro Film over it, must still be red at the top of the screen and blue at the bottom. */
+    public void testSecondLayerKeepsTheFrameUpright()throws Exception{
+        Thumbnails t=new Thumbnails(app);t.ensureGl();GlScene scene=t.scene;
+        Bitmap photo=Bitmap.createBitmap(200,330,Bitmap.Config.ARGB_8888);android.graphics.Canvas c=new android.graphics.Canvas(photo);
+        c.drawColor(0xff1030e0);android.graphics.Paint red=new android.graphics.Paint();red.setColor(0xffe02010);c.drawRect(0,0,200,165,red);
+        scene.upload(0,photo);while(scene.prepareBlur()){}
+        WallpaperConfig.Profile p=new WallpaperConfig.Profile();p.effect="classic";p.overlay="film";p.scale=1.02f;
+        GlScene.Pass base=new GlScene.Pass(),top=new GlScene.Pass();base.set(0,p);check(top.setOverlay(0,p),"film is a layer effect");
+        float[] touch={.5f,.5f,99,0};
+        scene.begin();scene.draw(base,Thumbnails.WIDTH,Thumbnails.HEIGHT,0,0,1,touch,1,9,Thumbnails.PREVIEW_ENV);
+        scene.overlay(top,Thumbnails.WIDTH,Thumbnails.HEIGHT,0,0,1,touch,1,9,Thumbnails.PREVIEW_ENV);scene.end(Thumbnails.WIDTH,Thumbnails.HEIGHT);
+        java.nio.ByteBuffer px=java.nio.ByteBuffer.allocateDirect(4).order(java.nio.ByteOrder.nativeOrder());
+        android.opengl.GLES30.glReadPixels(Thumbnails.WIDTH/2,Thumbnails.HEIGHT-30,1,1,android.opengl.GLES30.GL_RGBA,android.opengl.GLES30.GL_UNSIGNED_BYTE,px); // GL rows count from the bottom
+        int r1=px.get(0)&255,b1=px.get(2)&255;px.position(0);
+        android.opengl.GLES30.glReadPixels(Thumbnails.WIDTH/2,30,1,1,android.opengl.GLES30.GL_RGBA,android.opengl.GLES30.GL_UNSIGNED_BYTE,px);
+        int r2=px.get(0)&255,b2=px.get(2)&255;
+        t.release();photo.recycle();
+        check(r1>b1+60,"top of the screen should be red, got r="+r1+" b="+b1);
+        check(b2>r2+60,"bottom of the screen should be blue, got r="+r2+" b="+b2);
+    }
     /** Depth Anything runs on the device: a simple landscape (sky above, ground running toward the camera) must come
      *  out with the ground nearer (brighter) than the sky. */
     public void testDepthModelSeesTheGroundNearerThanTheSky()throws Exception{
