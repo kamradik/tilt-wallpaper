@@ -6,7 +6,7 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     
     float tiltPhase = tilt.x * 4.5 + lensNorm * 0.70;
     float d = depthAt(uv);
-    float fgMask = smoothstep(0.46, 0.54, d);
+    float fgMask = subjectAt(uv);
     
     // Micro-parallax for foreground (0.15x), full stereo depth for background (1.0x)
     float parallaxScale = mix(1.0, 0.15, fgMask);
@@ -18,7 +18,7 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     vec3 stereo = mix(photo(leftPhase, 0.0), photo(rightPhase, 0.0), blend);
     
     // Contact shadow on background behind cutout subject
-    float shadowOcclusion = smoothstep(0.48, 0.52, depthAt(uv - tilt * 0.025)) * (1.0 - fgMask);
+    float shadowOcclusion = subjectAt(uv - tilt * 0.025)*(1.0-fgMask);
     stereo = mix(stereo, stereo * 0.55, shadowOcclusion * 0.65);
     
     // Cylindrical lenticular optical rib reflection

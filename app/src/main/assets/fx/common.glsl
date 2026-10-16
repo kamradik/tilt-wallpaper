@@ -42,6 +42,9 @@ vec2 coords(vec2 uv){
 }
 vec3 photo(vec2 uv,float lod){return textureLod(u_image,coords(uv),max(0.0,lod)).rgb;}
 float depthAt(vec2 uv){return texture(u_depth,coords(uv)).r;}
+// The main subject, 0..1. Depth maps from MlDepth carry a subject mask in G and mark it with B = 1; imported and
+// approximate maps have depth only, so the subject is whatever stands nearer than the middle of the depth range.
+float subjectAt(vec2 uv){vec4 d=texture(u_depth,coords(uv));return d.b>.9?d.g:smoothstep(.46,.54,d.r);}
 
 vec3 classic(vec2 uv){
     vec3 point=vec3((uv-.5)*vec2(1.0,1.0/u_aspect),1.0);

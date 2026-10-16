@@ -1,7 +1,7 @@
 vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     // Dolly Zoom Vertigo: In-camera Hitchcock dolly zoom shifting perspective depth planes on tilt
     float d = depthAt(uv);
-    float fgMask = smoothstep(0.46, 0.54, d);
+    float fgMask = subjectAt(uv);
     float tiltAmp = tilt.y * 0.15 * params.x + tilt.x * 0.04;
     
     // Opposing focal displacement: foreground zooms delicately (0.15x), background recedes/expands (1.0x)
@@ -22,7 +22,7 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     vertigo.b = photo(dollyUv + chromaDisp, 0.0).b;
     
     // Soft contact shadow on background behind subject
-    float shadowOcclusion = smoothstep(0.48, 0.52, depthAt(uv - tilt * 0.025)) * (1.0 - fgMask);
+    float shadowOcclusion = subjectAt(uv - tilt * 0.025)*(1.0-fgMask);
     vertigo = mix(vertigo, vertigo * 0.55, shadowOcclusion * 0.65);
     
     return vertigo;

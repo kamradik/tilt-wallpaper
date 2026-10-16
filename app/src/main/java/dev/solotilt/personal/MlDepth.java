@@ -21,9 +21,15 @@ import java.util.Collections;
  *   one-sided noise;
  * - the map is enlarged to REFINED and its edges are snapped to the photo's with a guided filter, so a subject's
  *   outline moves with the subject instead of carrying a halo of background when the phone tilts.
+ * Then U2-Net small (u2netp, Apache-2.0) finds the main subject. When there is a clear one, its depth is flattened
+ * into one layer (so it moves as a whole instead of stretching) and its mask is written next to the depth:
+ * R depth (white near), G subject mask, B 255 marking that G is a mask. Maps without a subject keep B at 0 and
+ * the shaders fall back to a depth threshold (common.glsl subjectAt).
  */
 final class MlDepth {
-    static final String MODEL="models/depth_anything_v2_small_int8.onnx";
+    static final String MODEL="models/depth_anything_v2_small_int8.onnx",SUBJECT_MODEL="models/u2netp.onnx";
+    /** u2netp's fixed input size, and the share of the frame a subject must cover to count as one. */
+    static final int SUBJECT_SIDE=320;static final float MIN_AREA=.03f,MAX_AREA=.8f;
     /** Long side of the network input; both sides must be multiples of the ViT patch size. */
     static final int LONG_SIDE=588,PATCH=14,REFINED=1024;
     /** Guided filter window (pixels of the refined map) and regularization: only strong photo edges move the depth. */
@@ -99,7 +105,7 @@ final class MlDepth {
             try(OrtSession.SessionOptions options=new OrtSession.SessionOptions()){
                 options.setIntraOpNumThreads(Math.max(1,Math.min(4,Runtime.getRuntime().availableProcessors())));
                 options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
-                try(OrtSession session=env.createSession(model(c),options)){
+                try(OrtSession session=env.createSession(asset(c,MODEL),options)){
                     String name=session.getInputNames().iterator().next();int[] shape=new int[2];
                     float[] plain=infer(env,session,name,pixels,w,h,shape);
                     float[] mirrored=mirror(infer(env,session,name,mirror(pixels,w,h),w,h,shape),shape[0],shape[1]);
@@ -108,7 +114,11 @@ final class MlDepth {
                     float[] a=normalize(plain),b=normalize(mirrored),depth=new float[a.length];for(int i=0;i<a.length;i++)depth[i]=(a[i]+b[i])*.5f;
                     int[] out=refinedSize(image.getWidth(),image.getHeight());int rw=out[0],rh=out[1];
                     Bitmap guideImage=Bitmap.createScaledBitmap(image,rw,rh,true);int[] guidePixels=new int[rw*rh];guideImage.getPixels(guidePixels,0,rw,0,0,rw,rh);if(guideImage!=image)guideImage.recycle();
-                    float[] refined=guided(luma(guidePixels),resize(depth,shape[0],shape[1],rw,rh),rw,rh,RADIUS,EPS);
+                    float[] guide=luma(guidePixels);
+                    float[] refined=guided(guide,resize(depth,shape[0],shape[1],rw,rh),rw,rh,RADIUS,EPS);
+                    float[] mask=null;
+                    try{mask=subject(c,env,options,image,guide,rw,rh);}catch(OrtException|IOException|RuntimeException e){Log.w("SoloDepth","Subject mask unavailable",e);}
+                    if(mask!=null){layer(refined,mask);return Bitmap.createBitmap(withMask(refined,mask),rw,rh,Bitmap.Config.ARGB_8888);}
                     String timing="Depth Anything "+w+"x"+h+" x2 in "+inferred+" ms, refined to "+rw+"x"+rh+" in "+(android.os.SystemClock.elapsedRealtime()-started-inferred)+" ms";
                     Log.i("SoloDepth",timing);CrashLog.note(timing); // shown in Diagnostics, so the real speed on a phone is visible
                     return Bitmap.createBitmap(greyOf(refined),rw,rh,Bitmap.Config.ARGB_8888);
@@ -116,19 +126,63 @@ final class MlDepth {
             }
         }catch(OrtException|RuntimeException|UnsatisfiedLinkError e){throw new IOException("Depth model failed",e);}
     }
+    /** The main subject's mask at rw x rh (0..1), edges snapped to the photo; null when no clear subject. */
+    static float[] subject(Context c,OrtEnvironment env,OrtSession.SessionOptions options,Bitmap image,float[] guide,int rw,int rh)throws OrtException,IOException{
+        Bitmap small=Bitmap.createScaledBitmap(image,SUBJECT_SIDE,SUBJECT_SIDE,true);int[] px=new int[SUBJECT_SIDE*SUBJECT_SIDE];small.getPixels(px,0,SUBJECT_SIDE,0,0,SUBJECT_SIDE,SUBJECT_SIDE);if(small!=image)small.recycle();
+        float[] raw;int[] shape=new int[2];
+        try(OrtSession session=env.createSession(asset(c,SUBJECT_MODEL),options)){raw=infer(env,session,session.getInputNames().iterator().next(),stretched(px),SUBJECT_SIDE,SUBJECT_SIDE,shape,true);}
+        return subjectMask(raw,shape[0],shape[1],guide,rw,rh);
+    }
+    /** u2netp scales the photo by its brightest channel value before the usual normalization (as rembg does). */
+    static int[] stretched(int[] argb){
+        int max=1;for(int p:argb)max=Math.max(max,Math.max((p>>16)&255,Math.max((p>>8)&255,p&255)));
+        if(max>=255)return argb;float k=255f/max;int[] o=new int[argb.length];
+        for(int i=0;i<argb.length;i++){int p=argb[i];o[i]=0xff000000|Math.min(255,Math.round(((p>>16)&255)*k))<<16|Math.min(255,Math.round(((p>>8)&255)*k))<<8|Math.min(255,Math.round((p&255)*k));}
+        return o;
+    }
+    /** Raw network output to a refined 0..1 mask, or null when there is no clear subject. Pure, unit-tested. */
+    static float[] subjectMask(float[] raw,int w,int h,float[] guide,int rw,int rh){
+        float lo=Float.MAX_VALUE,hi=-Float.MAX_VALUE;for(float v:raw){lo=Math.min(lo,v);hi=Math.max(hi,v);}
+        if(!(hi-lo>1e-3f))return null;
+        float[] m=new float[raw.length];for(int i=0;i<raw.length;i++)m[i]=(raw[i]-lo)/(hi-lo);
+        // Edges follow the photo (a tight guided filter), then a soft threshold gives a clean cut-out with a narrow
+        // antialiased rim.
+        float[] up=guided(guide,resize(m,w,h,rw,rh),rw,rh,4,1e-3f);
+        int inside=0;for(int i=0;i<up.length;i++){float v=Math.max(0,Math.min(1,(up[i]-.35f)/.3f));up[i]=v*v*(3-2*v);if(up[i]>.5f)inside++;}
+        float area=inside/(float)up.length;
+        return area<MIN_AREA||area>MAX_AREA?null:up;
+    }
+    /** Flattens the subject's depth into one layer: its median depth, keeping a little of its own relief, and
+     *  never behind its surroundings. In place. */
+    static void layer(float[] depth,float[] mask){
+        int n=0;for(float m:mask)if(m>.5f)n++;if(n==0)return;
+        float[] in=new float[n];int k=0;double out=0;int outN=0;
+        for(int i=0;i<depth.length;i++){if(mask[i]>.5f)in[k++]=depth[i];else if(mask[i]<.1f){out+=depth[i];outN++;}}
+        java.util.Arrays.sort(in);float median=in[n/2],around=outN==0?0:(float)(out/outN);
+        float level=Math.max(median,Math.min(1,around+.15f));
+        for(int i=0;i<depth.length;i++){float layered=level+(depth[i]-median)*.3f;depth[i]=Math.max(0,Math.min(1,depth[i]+(layered-depth[i])*mask[i]));}
+    }
+    /** Depth in R, mask in G, B = 255 marking the mask. */
+    static int[] withMask(float[] depth,float[] mask){
+        int[] out=new int[depth.length];
+        for(int i=0;i<depth.length;i++){int d=Math.round(255*Math.max(0,Math.min(1,depth[i]))),m=Math.round(255*Math.max(0,Math.min(1,mask[i])));out[i]=0xff0000ff|d<<16|m<<8;}
+        return out;
+    }
     /** One inference; shape receives {width, height} of the depth output. */
-    static float[] infer(OrtEnvironment env,OrtSession session,String name,int[] pixels,int w,int h,int[] shape)throws OrtException,IOException{
+    static float[] infer(OrtEnvironment env,OrtSession session,String name,int[] pixels,int w,int h,int[] shape)throws OrtException,IOException{return infer(env,session,name,pixels,w,h,shape,false);}
+    /** firstChannel: the output is [1, C, H, W] and only channel 0 is wanted (u2netp's fused mask). */
+    static float[] infer(OrtEnvironment env,OrtSession session,String name,int[] pixels,int w,int h,int[] shape,boolean firstChannel)throws OrtException,IOException{
         try(OnnxTensor input=OnnxTensor.createTensor(env,FloatBuffer.wrap(tensor(pixels,w,h)),new long[]{1,3,h,w});
             OrtSession.Result result=session.run(Collections.singletonMap(name,input))){
             OnnxTensor out=(OnnxTensor)result.get(0);long[] s=out.getInfo().getShape();
             shape[0]=(int)s[s.length-1];shape[1]=(int)s[s.length-2];
-            FloatBuffer fb=out.getFloatBuffer();float[] depth=new float[fb.remaining()];fb.get(depth);
-            if(depth.length!=shape[0]*shape[1])throw new IOException("Unexpected depth shape");
+            FloatBuffer fb=out.getFloatBuffer();float[] depth=new float[firstChannel?shape[0]*shape[1]:fb.remaining()];fb.get(depth);
+            if(depth.length!=shape[0]*shape[1])throw new IOException("Unexpected output shape");
             return depth;
         }
     }
-    static byte[] model(Context c)throws IOException{
-        try(InputStream in=c.getAssets().open(MODEL);ByteArrayOutputStream out=new ByteArrayOutputStream(28<<20)){
+    static byte[] asset(Context c,String name)throws IOException{
+        try(InputStream in=c.getAssets().open(name);ByteArrayOutputStream out=new ByteArrayOutputStream(28<<20)){
             byte[] b=new byte[1<<16];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toByteArray();
         }
     }

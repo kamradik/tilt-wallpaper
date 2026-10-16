@@ -37,7 +37,11 @@ const avatar='data:image/jpeg;base64,'+fs.readFileSync(path.join(root,'app/src/m
       const gl=canvas.getContext('webgl2',{preserveDrawingBuffer:true});
       const texFrom=(src)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);return t;};
       const flat=(w,h,v)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(w*h*4).fill(v));gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);return t;};
-      const photoTex=photos.map(texFrom),depth=flat(4,4,128),wipe=flat(4,4,0),field=flat(72,160,0);
+      const photoTex=photos.map(texFrom),wipe=flat(4,4,0),field=flat(72,160,0);
+      // Depth maps as MlDepth writes them: R depth (white near), G subject mask, B 255 = has a mask. The portrait's
+      // subject is an ellipse round the face; the landscape has no mask and gets nearer toward the bottom.
+      const depthMap=(w,h,f)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);const px=new Uint8Array(w*h*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++)px.set(f(x/w,y/h),(y*w+x)*4);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,px);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);return t;};
+      const depths=[depthMap(180,390,(x,y)=>{const e=Math.hypot((x-.5)/.36,(y-.52)/.3);const m=Math.max(0,Math.min(1,(1-e)*14));const d=m>0?220:60+y*80;return[d,m*255,255,255];}),depthMap(90,195,(x,y)=>{const d=y<.45?20:40+(y-.45)*380;return[Math.min(255,d),0,0,255];})];
       const vao=gl.createVertexArray();gl.bindVertexArray(vao);gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer());
       gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,0,0,1,-1,1,0,-1,1,0,1,-1,1,0,1,1,-1,1,0,1,1,1,1]),gl.STATIC_DRAW);
       gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,16,0);gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,2,gl.FLOAT,false,16,8);
@@ -49,7 +53,7 @@ const avatar='data:image/jpeg;base64,'+fs.readFileSync(path.join(root,'app/src/m
         for(const [type,src] of [[gl.VERTEX_SHADER,quad],[gl.FRAGMENT_SHADER,source]]){const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){errors.push(name+': '+gl.getShaderInfoLog(sh));bad=true;}gl.attachShader(p,sh);}
         if(bad)return;gl.linkProgram(p);gl.useProgram(p);const u=n=>gl.getUniformLocation(p,n);
         photos.forEach((ph,pi)=>tilts.forEach(([tx,ty],ti)=>{
-          [[gl.TEXTURE0,photoTex[pi],'u_image',0],[gl.TEXTURE1,depth,'u_depth',1],[gl.TEXTURE2,wipe,'u_wipeMask',2],[gl.TEXTURE3,field,'u_field',3]].forEach(([unit,t,n,i])=>{gl.activeTexture(unit);gl.bindTexture(gl.TEXTURE_2D,t);gl.uniform1i(u(n),i);});
+          [[gl.TEXTURE0,photoTex[pi],'u_image',0],[gl.TEXTURE1,depths[pi],'u_depth',1],[gl.TEXTURE2,wipe,'u_wipeMask',2],[gl.TEXTURE3,field,'u_field',3]].forEach(([unit,t,n,i])=>{gl.activeTexture(unit);gl.bindTexture(gl.TEXTURE_2D,t);gl.uniform1i(u(n),i);});
           const aspect=W/H,mm=70,deg=tx*65*.75,r=deg*Math.PI/180,sn=Math.sin(r),c=Math.cos(r);
           gl.uniform2f(u('u_imageSize'),720,1560);gl.uniform2f(u('u_coverScale'),Math.min(1,aspect/(720/1560)),Math.min(1,(720/1560)/aspect));gl.uniform2f(u('u_crop'),.5,.5);gl.uniform1f(u('u_zoom'),1.08);gl.uniform1f(u('u_aspect'),aspect);gl.uniform1f(u('u_screenWidthMm'),mm);
           gl.uniform3f(u('u_projectionX'),c,0,.5*(c-1));gl.uniform3f(u('u_projectionY'),0,1,0);gl.uniform3f(u('u_projectionZ'),-sn*mm/320,0,1-sn*mm*.5/320);gl.uniform3f(u('u_gap'),sn*mm,0,sn*mm*.5);gl.uniform3f(u('u_blurGap'),20,0,10);

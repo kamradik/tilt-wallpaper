@@ -1,7 +1,7 @@
 vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     // Parallax Occlusion Mapping (POM): True ray-marched height relief with self-occlusion & Subject 3D Cutout
     float depth = depthAt(uv);
-    float fgMask = smoothstep(0.46, 0.54, depth);
+    float fgMask = subjectAt(uv);
     
     float depthScale = mix(0.025, 0.095, params.x);
     vec2 viewRay = -tilt * depthScale;
@@ -50,7 +50,7 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     vec3 bg = photo(finalUv, 0.0) * mix(1.0, shadow, shadowToggle);
     
     // Soft contact shadow on background behind floating subject
-    float shadowOcclusion = smoothstep(0.48, 0.52, depthAt(uv - tilt * 0.025)) * (1.0 - fgMask);
+    float shadowOcclusion = subjectAt(uv - tilt * 0.025)*(1.0-fgMask);
     bg = mix(bg, bg * 0.55, shadowOcclusion * 0.65);
     
     // Foreground subject stays crisp with delicate 0.15x micro-tilt

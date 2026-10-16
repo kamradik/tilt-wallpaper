@@ -108,6 +108,20 @@ public final class SmokeTest {
         check(bottom>top,"ground "+bottom/d.getWidth()+" should be nearer than sky "+top/d.getWidth()+" ("+t+" ms)");
         b.recycle();d.recycle();
     }
+    /** U2-Net finds a clear subject: a red ball on a plain grey wall comes out with a mask (B = 255) that covers
+     *  the ball and not the wall. */
+    public void testSubjectMaskFindsTheBall()throws Exception{
+        Bitmap b=Bitmap.createBitmap(480,640,Bitmap.Config.ARGB_8888);android.graphics.Canvas c=new android.graphics.Canvas(b);c.drawColor(0xff9a9a9e);
+        android.graphics.Paint p=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        p.setShader(new android.graphics.RadialGradient(210,300,150,0xffff5a40,0xffb01810,android.graphics.Shader.TileMode.CLAMP));c.drawCircle(240,330,140,p);
+        Bitmap d=MlDepth.estimate(app,b);
+        int centre=d.getPixel(d.getWidth()/2,d.getHeight()*330/640),corner=d.getPixel(10,10);
+        check((centre&255)==255,"the map should carry a subject mask (B=255), got "+Integer.toHexString(centre));
+        check(((centre>>8)&255)>200,"the ball should be in the mask, G="+((centre>>8)&255));
+        check(((corner>>8)&255)<50,"the wall should not be in the mask, G="+((corner>>8)&255));
+        check(((centre>>16)&255)>((corner>>16)&255),"the ball should be nearer than the wall");
+        b.recycle();d.recycle();
+    }
     /** The transcoder cuts on the exact frame: a clip whose frame i is grey level 5*i, keyframes 2 s apart, cut at
      *  1.0 s must start on frame 30 (grey 150), where a keyframe-based copy would start on frame 0. */
     public void testVideoTrimIsFrameExact()throws Exception{

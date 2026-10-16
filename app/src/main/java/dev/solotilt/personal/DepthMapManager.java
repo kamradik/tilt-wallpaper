@@ -31,17 +31,24 @@ final class DepthMapManager {
     };
     static String key(Context c,String slot){return ImageStore.isCustom(c,slot)?ImageStore.key("custom",slot)+"-"+ImageStore.revision(c,slot):"preset-"+ImageStore.presetIndex(c,slot);}
     static File file(Context c,String key,boolean manual){return new File(c.getFilesDir(),"depth-"+key+(manual?"-manual":"-approx-v1")+".png");}
-    static File mlFile(Context c,String key){return new File(c.getFilesDir(),"depth-"+key+"-ml-v2.png");}
+    static File mlFile(Context c,String key){return new File(c.getFilesDir(),"depth-"+key+"-ml-v3.png");}
     static boolean manual(Context c,String key){return file(c,key,true).isFile();}
     /** The photo's depth map: an imported one, else the model's, else (model unavailable) the approximation. Cached. */
     static synchronized Bitmap load(Context c,Bitmap image,String key)throws IOException{
-        if(manual(c,key)){Bitmap cached=BitmapFactory.decodeFile(file(c,key,true).getPath());if(cached!=null)return cached;}
+        if(manual(c,key)){Bitmap cached=BitmapFactory.decodeFile(file(c,key,true).getPath());if(cached!=null)return depthOnly(cached);}
         File ml=mlFile(c,key);
         if(ml.isFile()){Bitmap cached=BitmapFactory.decodeFile(ml.getPath());if(cached!=null)return cached;}
         try{Bitmap result=MlDepth.estimate(c,image);try{write(ml,result);}catch(IOException e){result.recycle();throw e;}return result;}
         catch(IOException|OutOfMemoryError e){android.util.Log.w("SoloDepth","Depth model unavailable, using the approximation",e);}
-        File f=file(c,key,false);if(f.isFile()){Bitmap cached=BitmapFactory.decodeFile(f.getPath());if(cached!=null)return cached;}
-        Bitmap result=PROVIDER.estimate(image);try{write(f,result);}catch(IOException e){result.recycle();throw e;}return result;
+        File f=file(c,key,false);if(f.isFile()){Bitmap cached=BitmapFactory.decodeFile(f.getPath());if(cached!=null)return depthOnly(cached);}
+        Bitmap result=PROVIDER.estimate(image);try{write(f,result);}catch(IOException e){result.recycle();throw e;}return depthOnly(result);
+    }
+    /** Grey maps (imported, approximate) carry no subject mask: depth stays in R, G and B are cleared so the shaders
+     *  never read their grey as a mask (MlDepth marks a real mask with B = 255). */
+    static Bitmap depthOnly(Bitmap grey){
+        int w=grey.getWidth(),h=grey.getHeight();int[] px=new int[w*h];grey.getPixels(px,0,w,0,0,w,h);
+        for(int i=0;i<px.length;i++)px[i]=0xff000000|(px[i]&0xff0000);
+        Bitmap out=Bitmap.createBitmap(px,w,h,Bitmap.Config.ARGB_8888);if(out!=grey)grey.recycle();return out;
     }
     static void importDepth(Context c,Uri uri,String slot)throws IOException{
         String key=key(c,slot);Bitmap decoded=ImageStore.decode(ImageDecoder.createSource(c.getContentResolver(),uri));

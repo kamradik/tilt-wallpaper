@@ -1,7 +1,7 @@
 vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     // Celestial Star Nebula: Interstellar dust clouds and sparkling starfield with 3D parallax & Subject 3D Cutout
     float d = depthAt(uv);
-    float fgMask = smoothstep(0.46, 0.54, d);
+    float fgMask = subjectAt(uv);
     
     vec2 fgMove = -tilt * (0.028 * 0.15 * params.x);
     vec2 bgMove = tilt * (0.028 * 1.0 * params.x);
@@ -11,7 +11,7 @@ vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     vec3 bgColor = photo(uv + bgMove, 0.0);
     
     // Soft contact shadow on space background behind subject
-    float shadowOcclusion = smoothstep(0.48, 0.52, depthAt(uv - tilt * 0.025)) * (1.0 - fgMask);
+    float shadowOcclusion = subjectAt(uv - tilt * 0.025)*(1.0-fgMask);
     bgColor = mix(bgColor, bgColor * 0.55, shadowOcclusion * 0.65);
     vec3 base = mix(bgColor, fgColor, fgMask);
     

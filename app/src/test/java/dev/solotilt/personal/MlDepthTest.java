@@ -54,4 +54,24 @@ public class MlDepthTest {
         assertArrayEquals(new int[]{1024,768},MlDepth.refinedSize(4000,3000));
         assertArrayEquals(new int[]{640,480},MlDepth.refinedSize(640,480));
     }
+    @Test public void subjectMaskNeedsAClearSubject(){
+        int w=40,h=40;float[] raw=new float[w*h],guide=new float[w*h];
+        for(int y=0;y<h;y++)for(int x=0;x<w;x++){boolean in=Math.hypot(x-20,y-20)<9;raw[y*w+x]=in?5:-5;guide[y*w+x]=in?.8f:.2f;}
+        float[] m=MlDepth.subjectMask(raw,w,h,guide,w,h);
+        assertNotNull(m);assertEquals(1,m[20*w+20],.05);assertEquals(0,m[2*w+2],.05);
+        assertNull("a flat output has no subject",MlDepth.subjectMask(new float[w*h],w,h,guide,w,h));
+        float[] all=new float[w*h];java.util.Arrays.fill(all,3);all[0]=-3;
+        assertNull("a subject filling the frame is not a subject",MlDepth.subjectMask(all,w,h,new float[w*h],w,h));
+    }
+    @Test public void layerFlattensTheSubjectInFrontOfItsSurroundings(){
+        float[] depth={.2f,.2f,.5f,.7f},mask={0,0,1,1};
+        MlDepth.layer(depth,mask);
+        assertEquals(.2f,depth[0],1e-6);  // background untouched
+        assertTrue(depth[2]>.2f&&depth[3]>.2f);
+        assertTrue("relief is kept small",Math.abs(depth[3]-depth[2])<.1f);
+    }
+    @Test public void maskIsPackedInGreenAndMarkedInBlue(){
+        int[] px=MlDepth.withMask(new float[]{1,0},new float[]{0,1});
+        assertEquals(0xffff00ff,px[0]);assertEquals(0xff00ffff,px[1]);
+    }
 }
