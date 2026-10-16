@@ -109,7 +109,8 @@ final class MlDepth {
                     int[] out=refinedSize(image.getWidth(),image.getHeight());int rw=out[0],rh=out[1];
                     Bitmap guideImage=Bitmap.createScaledBitmap(image,rw,rh,true);int[] guidePixels=new int[rw*rh];guideImage.getPixels(guidePixels,0,rw,0,0,rw,rh);if(guideImage!=image)guideImage.recycle();
                     float[] refined=guided(luma(guidePixels),resize(depth,shape[0],shape[1],rw,rh),rw,rh,RADIUS,EPS);
-                    Log.i("SoloDepth","Depth Anything "+w+"x"+h+" x2 in "+inferred+" ms, refined to "+rw+"x"+rh+" in "+(android.os.SystemClock.elapsedRealtime()-started-inferred)+" ms");
+                    String timing="Depth Anything "+w+"x"+h+" x2 in "+inferred+" ms, refined to "+rw+"x"+rh+" in "+(android.os.SystemClock.elapsedRealtime()-started-inferred)+" ms";
+                    Log.i("SoloDepth",timing);CrashLog.note(timing); // shown in Diagnostics, so the real speed on a phone is visible
                     return Bitmap.createBitmap(greyOf(refined),rw,rh,Bitmap.Config.ARGB_8888);
                 }
             }
