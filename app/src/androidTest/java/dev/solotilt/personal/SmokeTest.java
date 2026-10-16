@@ -29,6 +29,7 @@ public final class SmokeTest {
         shell("mkdir -p "+DEVICE_SHOTS);
         if(!shots.isDirectory()&&!shots.mkdirs())throw new IOException("Cannot create "+shots);
         shell("input keyevent KEYCODE_WAKEUP");shell("wm dismiss-keyguard");ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);
+        try{ui.waitForIdle(500,5000);}catch(Exception ignored){}pause(800);  // let the Home press settle before launching
         // A fresh emulator would open the first-launch onboarding; the hub test starts past it (testOnboarding covers it).
         ImageStore.prefs(app).edit().putBoolean(OnboardingActivity.SEEN,true).commit();
         launch();
@@ -38,10 +39,17 @@ public final class SmokeTest {
     void launch()throws IOException{
         check(app.getPackageManager().getLaunchIntentForPackage(PKG)!=null,"no launch intent");
         // After a heavy test (the depth network) a cold start can lose the race with the launcher: try twice.
-        for(int attempt=0;attempt<2;attempt++){
+        // A Home press queued by the previous test's tearDown can land late on a loaded emulator and send the app
+        // back, so the app must stay in front for two seconds running before the test goes on.
+        for(int attempt=0;attempt<4;attempt++){
             shell("am start -W --activity-clear-task -n "+PKG+"/.MainActivity");
-            long end=SystemClock.uptimeMillis()+10_000;
-            while(SystemClock.uptimeMillis()<end){AccessibilityNodeInfo r=ui.getRootInActiveWindow();if(r!=null&&PKG.contentEquals(r.getPackageName()))return;pause(250);}
+            long end=SystemClock.uptimeMillis()+10_000,since=-1;
+            while(SystemClock.uptimeMillis()<end){
+                AccessibilityNodeInfo r=ui.getRootInActiveWindow();boolean front=r!=null&&PKG.contentEquals(r.getPackageName());
+                if(!front){since=-1;if(r!=null&&since<0&&SystemClock.uptimeMillis()>end-7_000)break;}
+                else if(since<0)since=SystemClock.uptimeMillis();else if(SystemClock.uptimeMillis()-since>2_000)return;
+                pause(250);
+            }
         }
     }
     void tearDown(){ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);}
