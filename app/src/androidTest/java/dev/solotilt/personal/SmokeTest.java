@@ -77,11 +77,10 @@ public final class SmokeTest {
     void back(){ui.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);pause(500);}
     void shell(String command)throws IOException{try(ParcelFileDescriptor out=ui.executeShellCommand(command);InputStream in=new ParcelFileDescriptor.AutoCloseInputStream(out)){byte[] b=new byte[1024];while(in.read(b)!=-1){}}}
     void shot(String name)throws IOException{
-        try{ui.waitForIdle(300,3000);}catch(Exception ignored){}
-        Bitmap b=ui.takeScreenshot();check(b!=null,"screenshot "+name);
-        try(OutputStream out=new FileOutputStream(new File(shots,name+".png"))){b.compress(Bitmap.CompressFormat.PNG,100,out);}finally{b.recycle();}
-        // connectedAndroidTest uninstalls the app (and its external files) when it finishes: keep a copy where adb can pull it.
-        shell("mkdir -p "+DEVICE_SHOTS);shell("cp "+new File(shots,name+".png").getAbsolutePath()+" "+DEVICE_SHOTS+"/");
+        try{ui.waitForIdle(300,3000);}catch(Exception ignored){}pause(400);
+        // screencap reads the composited display; UiAutomation.takeScreenshot returned stale, dotted frames over the GL
+        // surface on the CI emulator. Writing to /data/local/tmp also survives the uninstall at the end of the run.
+        shell("mkdir -p "+DEVICE_SHOTS);shell("screencap -p "+DEVICE_SHOTS+"/"+name+".png");
     }
     /** First node in the app's window whose text or content description contains the pattern. */
     AccessibilityNodeInfo findNow(Pattern p){AccessibilityNodeInfo root=ui.getRootInActiveWindow();return root==null?null:search(root,p,null);}
