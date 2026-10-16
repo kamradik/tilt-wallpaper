@@ -42,6 +42,8 @@ android {
 dependencies {
     // Spatial Scene depth (MlDepth): ONNX Runtime, MIT licence.
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.30.0'
+    // QR codes for sharing looks (LookCodes): ZXing core, Apache-2.0.
+    implementation 'com.google.zxing:core:3.5.4'
     testImplementation 'junit:junit:4.13.2'
     // Android supplies org.json at runtime; host-side tests need a real implementation.
     testImplementation 'org.json:json:20250517'

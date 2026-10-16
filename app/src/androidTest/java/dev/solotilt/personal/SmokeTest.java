@@ -130,6 +130,14 @@ public final class SmokeTest {
             check(Math.abs(back.home.mods[0]-.5f)<1e-4,"finishing saved");
         }finally{ImageStore.prefs(app).edit().putString(WallpaperConfig.KEY,saved).commit();}
     }
+    /** A look survives a round trip through a QR picture: encode, draw, read back with ZXing, decode. */
+    public void testLookQrRoundTrip()throws Exception{
+        Looks.Look look=Looks.ALL[3];Bitmap qr=LookCodes.qr(LookCodes.encode(look),600);
+        Bitmap photo=Bitmap.createBitmap(900,1400,Bitmap.Config.ARGB_8888);android.graphics.Canvas c=new android.graphics.Canvas(photo);c.drawColor(0xff303036);c.drawBitmap(qr,150,400,null);  // a "screenshot" with the code on it
+        Looks.Look back=LookCodes.decode(LookCodes.read(photo));
+        check(back!=null&&back.effect.equals(look.effect)&&java.util.Objects.equals(back.overlay,look.overlay),"QR round trip");
+        qr.recycle();photo.recycle();
+    }
     /** U2-Net finds a clear subject: a red ball on a plain grey wall comes out with a mask (B = 255) that covers
      *  the ball and not the wall. */
     public void testSubjectMaskFindsTheBall()throws Exception{

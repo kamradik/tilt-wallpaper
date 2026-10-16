@@ -18,7 +18,7 @@ import static dev.solotilt.personal.WallpaperConfig.Preset;
 /** Saved looks as an inset grouped list: save the current screen, apply to home/lock/both, rename, duplicate,
  *  export and import .parallaxia files, delete in edit mode. Also opens .parallaxia and .tilt files sent from other apps. */
 public final class PresetsActivity extends Activity {
-    static final int EXPORT=1,IMPORT=2;static final String EXTRA_SLOT="slot";
+    static final int EXPORT=1,IMPORT=2,READ_QR=3;static final String EXTRA_SLOT="slot";
     WallpaperConfig config;LinearLayout list;TextView edit;boolean editing,busy;String exporting;
     final Handler main=new Handler(Looper.getMainLooper());final ExecutorService io=Executors.newSingleThreadExecutor();
     String tr(String ru,String en){return config.en()?en:ru;}
@@ -56,6 +56,7 @@ public final class PresetsActivity extends Activity {
         footer(this,list,tr("Пресет запоминает эффект, все его настройки, кадр и копию фото. Видео до 50 МБ сохраняется целиком, длиннее — только первый кадр.","A preset keeps the effect, all its settings, the framing and a copy of the photo. Videos up to 50 MB are kept whole; larger ones keep only their first frame."));
         LinearLayout mine=group(this,list,tr("Мои образы","My looks"));
         link(mine,tr("Сохранить текущий эффект как образ","Save the current effect as a look"),this::saveLook);
+        link(mine,tr("Добавить образ из QR-кода","Add a look from a QR code"),this::pickQr);
         for(Looks.Look l:config.looks)myLookRow(mine,l);
         footer(this,list,tr("Свой образ — это эффект с настройками, второй слой и обработка. Фото в него не входит.","Your look is the effect with its settings, the second layer and the finishing. The photo is not part of it."));
         LinearLayout looks=group(this,list,tr("Готовые образы","Ready looks"));
@@ -94,6 +95,43 @@ public final class PresetsActivity extends Activity {
         prompt(this,tr("Новый образ","New look"),tr("Название для эффекта с его настройками.","A name for the effect with its settings."),suggested,tr("Сохранить","Save"),tr("Отмена","Cancel"),name->{
             config.looks.add(0,Looks.Look.custom(WallpaperConfig.newId(),WallpaperConfig.cleanName(name),p));config.save(this);build();done(tr("Образ сохранён","Look saved"));});
     }
+    void pickQr(){
+        try{startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*"),READ_QR);}
+        catch(ActivityNotFoundException e){done(tr("Не найдено приложение выбора файлов.","No file picker is available."));}
+    }
+    void readQr(Uri uri){
+        if(config.looks.size()>=WallpaperConfig.MAX_LOOKS){alert(this,tr("Слишком много образов","Too many looks"),tr("Удали ненужные, чтобы добавить новый.","Delete some to add a new one."),"OK");return;}
+        Context app=getApplicationContext();
+        work(tr("Читаю код…","Reading the code…"),()->{
+            Bitmap picture=ImageStore.decode(ImageDecoder.createSource(app.getContentResolver(),uri));
+            String text;try{text=LookCodes.read(picture);}finally{picture.recycle();}
+            Looks.Look look=LookCodes.decode(text);
+            if(look==null)throw new IOException(text==null?tr("На картинке не найден QR-код.","No QR code found in the picture."):tr("Это не код образа Parallaxia.","This is not a Parallaxia look code."));
+            return ()->{config.looks.add(0,look);config.save(this);build();done(tr("Образ «"+look.name(config.en())+"» добавлен","Look “"+look.name(config.en())+"” added"));};
+        });
+    }
+    /** The look's QR code in an alert card, with Share (the code's text) and Done. */
+    void showQr(Looks.Look look){
+        String code;Bitmap qr;
+        try{code=LookCodes.encode(look);qr=LookCodes.qr(code,dp(240));}catch(Exception e){alert(this,tr("Не получилось","Something went wrong"),e.getMessage()==null?"":e.getMessage(),"OK");return;}
+        FrameLayout frame=new FrameLayout(this);LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setGravity(Gravity.CENTER_HORIZONTAL);
+        card.setBackground(new Shape(Ios.ALERT,px(this,Ios.GROUPED)));card.setOutlineProvider(ViewOutlineProvider.BACKGROUND);card.setClipToOutline(true);
+        frame.addView(card,new FrameLayout.LayoutParams(dp(300),-2,Gravity.CENTER));
+        TextView head=text(this,look.name(config.en()),17,SEMIBOLD,LABEL);head.setGravity(Gravity.CENTER);head.setPadding(dp(18),dp(18),dp(18),dp(2));card.addView(head);
+        TextView body=text(this,tr("Сделай снимок экрана и отправь его. В Parallaxia: «Добавить образ из QR-кода».","Take a screenshot and send it. In Parallaxia: “Add a look from a QR code”."),13,REGULAR,0xd9ffffff);
+        body.setGravity(Gravity.CENTER);body.setPadding(dp(18),dp(2),dp(18),dp(12));card.addView(body);
+        ImageView image=new ImageView(this);image.setImageBitmap(qr);image.setContentDescription(tr("QR-код образа","Look QR code"));
+        image.setBackground(new Shape(Color.WHITE,px(this,12)));image.setPadding(dp(8),dp(8),dp(8),dp(8));
+        LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(dp(240),dp(240));ip.bottomMargin=dp(16);card.addView(image,ip);
+        card.addView(hairline(this),new LinearLayout.LayoutParams(-1,Math.max(1,dp(.5f))));
+        LinearLayout buttons=new LinearLayout(this);card.addView(buttons,new LinearLayout.LayoutParams(-1,dp(48)));
+        Dialog d=dialog(this,frame,Gravity.CENTER);
+        TextView share=text(this,tr("Поделиться","Share"),17,REGULAR,BLUE),ok=text(this,tr("Готово","Done"),17,SEMIBOLD,BLUE);
+        for(TextView b:new TextView[]{share,ok}){b.setGravity(Gravity.CENTER);b.setClickable(true);b.setFocusable(true);}
+        buttons.addView(pressable(share),new LinearLayout.LayoutParams(0,-1,1));View line=new View(this);line.setBackgroundColor(Ios.SEPARATOR);buttons.addView(line,new LinearLayout.LayoutParams(Math.max(1,dp(.5f)),-1));buttons.addView(pressable(ok),new LinearLayout.LayoutParams(0,-1,1));
+        share.setOnClickListener(v->{try{startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,code),look.name(config.en())));}catch(ActivityNotFoundException ignored){}});
+        ok.setOnClickListener(v->d.dismiss());d.setOnDismissListener(x->qr.recycle());d.show();
+    }
     void myLookRow(LinearLayout card,Looks.Look look){
         separate(this,card);
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setMinimumHeight(dp(56));row.setPadding(dp(16),dp(8),dp(14),dp(8));row.setClickable(true);row.setFocusable(true);
@@ -102,9 +140,10 @@ public final class PresetsActivity extends Activity {
         row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));
         ImageView chevron=new ImageView(this);chevron.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));row.addView(chevron);
         row.setOnClickListener(v->{if(busy)return;
-            String[] items={tr("Применить к главному экрану","Apply to Home Screen"),tr("Применить к блокировке","Apply to Lock Screen"),tr("Применить к обоим","Apply to both"),tr("Удалить","Delete")};
-            actionSheet(this,look.name(config.en()),items,3,tr("Отмена","Cancel"),i->{
-                if(i==3){config.looks.remove(look);config.save(this);build();return;}
+            String[] items={tr("Применить к главному экрану","Apply to Home Screen"),tr("Применить к блокировке","Apply to Lock Screen"),tr("Применить к обоим","Apply to both"),tr("QR-код","QR code"),tr("Удалить","Delete")};
+            actionSheet(this,look.name(config.en()),items,4,tr("Отмена","Cancel"),i->{
+                if(i==3){showQr(look);return;}
+                if(i==4){config.looks.remove(look);config.save(this);build();return;}
                 String target=i==0?Presets.HOME:i==1?Presets.LOCK:Presets.BOTH;Looks.apply(getApplicationContext(),config,look,target);
                 done(i==1?tr("Теперь на блокировке","Now on the lock screen"):i==0?tr("Теперь на главном экране","Now on the home screen"):tr("Теперь на обоих экранах","Now on both screens"));
             });});
@@ -121,8 +160,9 @@ public final class PresetsActivity extends Activity {
         row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));
         ImageView chevron=new ImageView(this);chevron.setImageDrawable(new Glyph(this,Glyph.CHEVRON,TERTIARY,16));row.addView(chevron);
         row.setOnClickListener(v->{if(busy)return;
-            String[] items={tr("Применить к главному экрану","Apply to Home Screen"),tr("Применить к блокировке","Apply to Lock Screen"),tr("Применить к обоим","Apply to both")};
+            String[] items={tr("Применить к главному экрану","Apply to Home Screen"),tr("Применить к блокировке","Apply to Lock Screen"),tr("Применить к обоим","Apply to both"),tr("QR-код","QR code")};
             actionSheet(this,look.name(config.en()),items,-1,tr("Отмена","Cancel"),i->{
+                if(i==3){showQr(look);return;}
                 String target=i==0?Presets.HOME:i==1?Presets.LOCK:Presets.BOTH;Looks.apply(getApplicationContext(),config,look,target);
                 done(i==1?tr("Теперь на блокировке","Now on the lock screen"):i==0?tr("Теперь на главном экране","Now on the home screen"):tr("Теперь на обоих экранах","Now on both screens"));});});
         card.addView(pressable(row));
@@ -174,6 +214,7 @@ public final class PresetsActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();
         if(request==IMPORT)importFrom(uri);
+        else if(request==READ_QR)readQr(uri);
         else if(request==EXPORT){Preset p=config.preset(exporting);if(p==null)return;Context app=getApplicationContext();
             work(tr("Экспорт…","Exporting…"),()->{try(OutputStream out=open(app,uri)){if(out==null)throw new IOException("Cannot open");Presets.export(app,p,out);}return ()->done(tr("Файл сохранён","File saved"));});}
     }
