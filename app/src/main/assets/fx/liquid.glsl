@@ -1,89 +1,84 @@
-// Liquid Level: clear water fills the bottom of the screen and its surface stays level with the
-// real horizon as the phone rolls, sloshing gently when it is moved off level.
+// Liquid Level: the screen is the front of a glass and clear water fills its lower part. The surface stays on
+// the true horizon as the phone rolls and sloshes when it moves. Seen through the water the photo is magnified
+// and shifted, as through a real glass; just under the surface a silvery band reflects the water from below
+// (total internal reflection), the surface climbs the side walls in a meniscus, and caustics ripple faintly.
+// Sliders: fill level, waves. Switch: bubbles.
 
-float liquidBubbles(vec2 p,float waterTop){
-    // A sparse column grid of bubbles rising at their own speed; one cell per pixel (plus its
-    // neighbour) keeps it to two evaluations.
-    float sum=0.0;
-    float cols=7.0;
-    float x=p.x*cols;
+float lqBubbles(vec2 p,float waterTop){
+    // A sparse column grid of bubbles rising at their own speed; two columns per pixel.
+    float sum=0.0,cols=8.0,x=p.x*cols;
     for(int k=0;k<2;k++){
         float col=floor(x-.5)+float(k);
         vec2 h=hash2(vec2(col,3.7));
-        float speed=.07+.06*h.y;
-        float size=(.006+.010*h.x);
-        float cx=(col+.5+.35*(h.x-.5))/cols+.006*sin(u_time*(1.3+h.y)+h.x*20.0);
+        float speed=.06+.05*h.y,size=.005+.009*h.x;
         float travel=fract(h.y*5.1+u_time*speed);
-        float cy=-.6+travel*(waterTop+.6);
-        vec2 d=vec2(p.x-cx,p.y-cy);
-        float r=length(d);
-        float aa=fwidth(p.y)*1.2;
-        float ring=smoothstep(size+aa,size,r)*smoothstep(size*.45,size*.95,r);
-        float spark=smoothstep(size*.5,0.0,length(d-vec2(-.35,.35)*size));
-        float fade=smoothstep(0.0,.08,travel)*smoothstep(waterTop+.01,waterTop-.04,cy);
-        sum+=(ring*.55+spark*.9)*fade;
+        float cx=(col+.5+.35*(h.x-.5))/cols+.008*sin(u_time*(1.3+h.y)+h.x*20.0)*travel;
+        float cy=-.62+travel*(waterTop+.62);
+        vec2 d=vec2(p.x-cx,p.y-cy);float r=length(d),aa=fwidth(p.y)*1.2;
+        float ring=smoothstep(size+aa,size,r)*smoothstep(size*.5,size*.95,r);
+        float spark=smoothstep(size*.45,0.0,length(d-vec2(-.35,.35)*size));
+        float fade=smoothstep(0.0,.08,travel)*smoothstep(waterTop+.005,waterTop-.03,cy);
+        sum+=(ring*.5+spark)*fade;
     }
     return sum;
 }
 
 vec3 effect(vec2 uv,vec2 tilt,vec2 params){
     float level=params.x,waves=params.y;
-    // Square screen space centred on the middle, y up.
-    vec2 p=(uv-.5)*vec2(u_aspect,1.0);
-    // Roll keeps the waterline on the true horizon (tilt is degrees/65); pitch nudges the level.
-    float roll=clamp(tilt.x,-1.0,1.0)*1.1345;
-    vec2 up=vec2(sin(roll),cos(roll));
-    vec2 along=vec2(up.y,-up.x);
-    float s=dot(p,along);
-    float height=dot(p,up);
-    // Water fills by area: level 0..1 maps to a line between -0.42 and +0.25 of the screen height.
-    float surface=mix(-.42,.25,level)-tilt.y*.06;
-    // Waves grow with how far from level the phone is held, and never quite stop.
-    float slosh=(.25+.75*clamp(length(tilt)*1.6,0.0,1.0))*waves;
     float t=u_time;
-    float wave=sin(s*14.0-t*1.7)*.55+sin(s*23.0+t*2.3+1.3)*.3+sin(s*6.0+t*.9)*.15;
-    float dwave=cos(s*14.0-t*1.7)*.55*14.0+cos(s*23.0+t*2.3+1.3)*.3*23.0+cos(s*6.0+t*.9)*.15*6.0;
-    float amp=.006*slosh;
-    float line=surface+wave*amp;
-    float h=height-line;// negative under water
+    vec2 p=(uv-.5)*vec2(u_aspect,1.0);
+    // Roll keeps the waterline level with the real horizon (tilt is degrees/65); pitch nudges it.
+    float roll=clamp(tilt.x,-1.0,1.0)*1.1345;
+    vec2 up=vec2(sin(roll),cos(roll)),along=vec2(up.y,-up.x);
+    float s=dot(p,along),height=dot(p,up);
+    float surface=mix(-.42,.28,level)-tilt.y*.05;
+    // Sloshing: bigger the further from level the phone is held, and it never stops completely.
+    float slosh=(.3+.7*clamp(length(tilt)*1.4,0.0,1.0))*waves;
+    float wave=sin(s*11.0-t*1.6)*.5+sin(s*19.0+t*2.2+1.3)*.3+sin(s*5.0+t*.8)*.2;
+    float dwave=cos(s*11.0-t*1.6)*5.5+cos(s*19.0+t*2.2+1.3)*5.7+cos(s*5.0+t*.8)*1.0;
+    float amp=.009*slosh;
+    // Meniscus: the water climbs the glass walls at both sides of the screen.
+    float wall=min(u_aspect*.5-abs(p.x),.5-abs(p.y));
+    float climb=.012*exp(-max(wall,0.0)/.018);
+    float line=surface+wave*amp+climb;
+    float h=height-line;                                   // negative under water
     float aa=max(fwidth(height),1e-4)*1.5;
     float under=1.0-smoothstep(-aa,aa,h);
 
     vec3 dry=photo(uv,0.0);
 
-    // Refraction: the image under water is magnified toward the surface and bent by the wave slope.
+    // Through the water: magnified about the glass's centre (a water-filled glass is a lens) and bent by the
+    // slope of the waves; slightly softer the deeper the view.
     float depth=max(0.0,-h);
-    vec2 bend=along*(dwave*amp*.9)+up*(-depth*.05);
-    vec2 wuv=uv+bend/vec2(u_aspect,1.0)*.6;
-    vec3 wet=photo(wuv,depth*4.0);
-    // Absorption: red goes first, so deeper water turns teal and darker.
-    vec3 absorb=exp(-(depth+.06)*vec3(2.6,1.0,.7)*1.6);
-    wet*=absorb;
-    // In-scattering: the water itself glows faintly teal, more so the deeper it is.
-    wet+=vec3(.03,.10,.13)*(1.0-absorb.g)*1.4;
+    vec2 lens=p/vec2(1.07,1.03);
+    vec2 bend=along*dwave*amp*.6;
+    vec2 wuv=(lens+bend)/vec2(u_aspect,1.0)+.5;
+    vec3 wet=photo(wuv,depth*1.6);
+    // Clear water: a gentle cyan cast that grows with depth, never murky.
+    vec3 absorb=exp(-(depth+.06)*vec3(.55,.16,.1)*2.4);
+    wet=wet*absorb*vec3(.95,.99,1.0)+vec3(.012,.045,.06)*(1.0-absorb.r)*2.2;
 
-    // Caustics: two cheap crossing interference patterns focused into bright threads.
-    vec2 cp=vec2(s,height)*22.0;
-    float c1=sin(cp.x+sin(cp.y*.7+t*.8)*1.6+t*.6);
-    float c2=sin(cp.x*.6-cp.y*.8+sin(cp.x*.5-t*.7)*1.4-t*.5);
-    float caustic=pow(max(0.0,1.0-abs(c1+c2)*.5),6.0);
-    wet+=vec3(.75,.95,1.0)*caustic*.35*exp(-depth*2.5)*(.4+.6*waves);
+    // Caustics: soft crossing interference, faint and only near the surface.
+    vec2 cp=vec2(s,height)*16.0;
+    float c1=sin(cp.x+sin(cp.y*.7+t*.8)*1.6+t*.6),c2=sin(cp.x*.6-cp.y*.8+sin(cp.x*.5-t*.7)*1.4-t*.5);
+    float caustic=pow(max(0.0,1.0-abs(c1+c2)*.5),8.0);
+    wet*=1.0+caustic*.22*exp(-depth*3.0)*(.4+.6*waves);
 
-    // Bubbles rise only with the switch on.
-    if(u_toggle>.5){
-        float b=liquidBubbles(vec2(s,height),line);
-        wet+=vec3(.9,.97,1.0)*b*.6;
-    }
+    if(u_toggle>.5)wet+=vec3(.92,.97,1.0)*lqBubbles(vec2(s,height),line)*.55;
 
-    // Surface band: Fresnel sheen just under the line, a bright meniscus, and a soft shadow line.
-    float below=max(0.0,-h);
-    float sheen=exp(-below*40.0)*.35;
-    float meniscus=exp(-pow(h/(aa*1.6+.0025),2.0));
-    float tiltLight=.6+.4*clamp(dot(normalize(vec2(.4,1.0)+tilt*.8),vec2(-dwave*amp*4.0,1.0)),0.0,1.0);
-    wet=mix(wet,vec3(.86,.94,1.0),sheen*tiltLight);
+    // Under the surface, a silvery band: the surface seen from below mirrors the water (total internal
+    // reflection). It is wider when the phone leans back, as the view grazes the surface more.
+    float band=mix(.012,.03,clamp(.5-tilt.y,0.0,1.0));
+    float tir=smoothstep(band,0.0,depth)*under;
+    vec3 mirror=photo(vec2(wuv.x,wuv.y+depth*1.6),3.0)*absorb*1.12;
+    wet=mix(wet,mirror,tir*.35);
+
     vec3 col=mix(dry,wet,under);
-    // Thin contact shadow above the waterline from the meniscus curve.
-    col*=1.0-.18*exp(-max(0.0,h)*90.0)*(1.0-under);
-    col+=vec3(.95,.98,1.0)*meniscus*.55*tiltLight;
+    // The waterline: a thin bright edge where light glances off the meniscus, brightest where the waves
+    // face the light, and a faint dark line just above it where the meniscus bends the light away.
+    float light=.55+.45*clamp(dot(normalize(vec2(.35,1.0)+tilt*.6),normalize(vec2(-dwave*amp*3.0,1.0))),0.0,1.0);
+    float edge=exp(-pow(h/(aa*.9+.0012),2.0));
+    col*=1.0-.22*exp(-pow((h-.004)/.003,2.0))*(1.0-under);
+    col+=vec3(.92,.97,1.0)*edge*.42*light;
     return col;
 }

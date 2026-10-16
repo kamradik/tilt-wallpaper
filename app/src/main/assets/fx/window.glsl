@@ -1,92 +1,98 @@
-// Window: the photo sits at the back of a deep recess cut into a dark wall. Rays from a viewer in
-// front of the screen enter the opening and either reach the photo or hit the recess walls first.
+// Window: the photo is the view outside, seen through a painted wooden window that fills the screen.
+// Three planes stand one behind the other: the frame's front face, the glass a frame-thickness behind it,
+// and the view far beyond. Tilting moves the eye, so the frame shows its inner sides and the view slides
+// behind the glass (parallax); the glass catches a soft reflection that moves the other way.
+// Sliders: depth of the view, frame width. Switch: muntins (the cross bars dividing the panes).
 
-float windowBox(vec2 p,vec2 hs,float r){
-    vec2 q=abs(p)-hs+r;
-    return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
-}
-vec2 windowNormal(vec2 p,vec2 hs,float r){
-    vec2 q=abs(p)-hs+r;
-    vec2 g=q.x>0.0&&q.y>0.0?normalize(q):(q.x>q.y?vec2(1.0,0.0):vec2(0.0,1.0));
-    return g*sign(p+1e-6);
+float wnSmin(float a,float b,float k){float h=clamp(.5+.5*(b-a)/k,0.0,1.0);return mix(b,a,h)-k*h*(1.0-h);}
+
+// Signed distance from q (screen units, origin at the centre, y up) to the nearest wood edge: positive in a
+// pane, negative on the frame. fw is the frame width, bw the bar width; the bottom rail is a little deeper.
+float wnGlass(vec2 q,float fw,float bw,bool muntins){
+    vec2 hs=vec2(u_aspect*.5,.5);
+    float bottom=fw*1.45;
+    float e=min(min(hs.x-fw-abs(q.x),hs.y-fw-q.y),q.y+hs.y-bottom);
+    if(!muntins)return e;
+    float k=.006;
+    float v=abs(q.x)-bw*.5;
+    // Three rows of panes between the rails.
+    float top=hs.y-fw,low=-hs.y+bottom,third=(top-low)/3.0;
+    float h=min(abs(q.y-(low+third)),abs(q.y-(low+2.0*third)))-bw*.5;
+    return wnSmin(wnSmin(e,v,k),h,k);
 }
 
 vec3 effect(vec2 uv,vec2 tilt,vec2 params){
-    float aspect=u_aspect;
-    vec2 p=(uv-.5)*vec2(aspect,1.0);
-    float margin=mix(.035,.13,params.y)*min(1.0,aspect*2.0);
-    vec2 hs=vec2(aspect*.5,.5)-margin;
-    float radius=min(.05,min(hs.x,hs.y)*.4);
-    // Recess depth relative to the opening: the reveal stays a band, the photo keeps most of the window.
-    float depth=mix(.025,.085,params.x);
-    float aa=max(fwidth(p.y),1e-4);
+    float depth=params.x;
+    bool muntins=u_toggle>.5;
+    vec2 q=(uv-.5)*vec2(u_aspect,1.0);
+    float aa=max(fwidth(q.y),1e-4)*1.2;
+    float fw=mix(.03,.075,params.y)*min(1.0,u_aspect*2.1);
+    float bw=fw*.6;
+    // The eye's offset: the frame is a slab THICK in front of the glass; the view lies FAR behind it.
+    vec2 eye=tilt*vec2(1.0,1.0);
+    const float THICK=.045;
+    float far=mix(.03,.11,depth);
 
-    // Viewer: a central eye (so the recess reads as deep even flat) displaced by the tilt.
-    vec2 view=p*.35+tilt*.5;
-    // Light from the upper left, swinging with the tilt.
-    vec2 light2=normalize(vec2(-.55,.85)-tilt*.9);
-    vec3 L=normalize(vec3(light2,1.1));
+    float front=wnGlass(q,fw,bw,muntins);
+    float back=wnGlass(q-eye*THICK,fw,bw,muntins);
 
-    float sdf0=windowBox(p,hs,radius);
-    vec3 wallTone=photo(uv,7.0);
-    float wallLum=dot(wallTone,vec3(.2126,.7152,.0722));
-    // Material of the recess and frame: the photo's own average hue, quiet and dark.
-    vec3 material=mix(vec3(wallLum),wallTone,.55)*.55+.05;
+    // Light: daylight comes in through the window; the room behind the viewer is dimmer and warm.
+    vec3 outside=photo(vec2(.5,.62),9.0);                       // the view's overall colour
+    float outLum=dot(outside,vec3(.2126,.7152,.0722));
+    vec3 daylight=mix(vec3(1.0,.98,.95),outside/max(outLum,.05),.25);
+    vec3 paint=vec3(.93,.91,.87);
+    // Brush texture under the paint: a faint, fine noise (no regular pattern, so it never shimmers).
+    float grain=hash2(floor(q*vec2(700.0,90.0))).x;
 
-    // ---- outside the opening: a rounded moulding round the edge, then the wall face
-    vec3 wall=photo(uv,6.5);
-    wall=mix(vec3(dot(wall,vec3(.2126,.7152,.0722))),wall,.7)*.26+.012;
-    wall*=.8+.4*clamp(dot(p,light2)+.5,0.0,1.0);
-    float mouldW=.024;
-    float mt=clamp(sdf0/mouldW,0.0,1.0);
-    vec2 n2=windowNormal(p,hs,radius);
-    // Half-round profile: its normal sweeps from facing the opening to facing the wall.
-    float sx=mt*2.0-1.0;
-    vec3 mn=normalize(vec3(n2*sx,sqrt(max(0.0,1.0-sx*sx))+.15));
-    float diffuse=clamp(dot(mn,L),0.0,1.0);
-    vec3 moulding=material*(.35+.95*diffuse);
-    if(u_toggle>.5){
-        vec3 H=normalize(L+vec3(0.0,0.0,1.0));
-        float spec=pow(clamp(dot(mn,H),0.0,1.0),60.0);
-        moulding+=vec3(1.0,.97,.92)*spec*.8;
+    // ---- the view, far behind the glass, slightly enlarged so parallax never reaches its edge
+    vec2 viewP=q-eye*far;
+    vec2 vuv=viewP/vec2(u_aspect,1.0)/1.12+.5;
+    vec3 view=photo(vuv,0.0);
+    // Glass: a faint cool cast, a reflection band sliding against the parallax, and the room's dim reflection.
+    vec3 glass=view*vec3(.97,.99,1.0);
+    float diag=dot(q+eye*.25,normalize(vec2(.55,1.0)));
+    float band=smoothstep(.10,.0,abs(diag-.18))*.06+smoothstep(.05,.0,abs(diag+.02))*.035;
+    glass+=vec3(1.0)*band*(.6+.4*outLum);
+    vec3 room=photo(vec2(1.0-vuv.x,vuv.y),6.0)*.1;
+    glass=mix(glass,glass+room,.35);
+    // Putty line and a soft shadow just inside each pane, where the frame meets the glass.
+    float inPane=max(back,0.0);
+    glass*=mix(.80,1.0,smoothstep(0.0,.018,inPane));
+    glass*=1.0-.35*(1.0-smoothstep(0.0,aa*2.5,inPane));
+
+    // ---- the inner sides of the frame, seen between the front face and the glass when tilted
+    // Their normal points into the pane they face: back - front changes sign across them.
+    vec2 g=vec2(dFdx(back),dFdy(back));
+    vec2 n=normalize(g+1e-6);
+    float lit=clamp(dot(n,normalize(vec2(.3,-1.0))),0.0,1.0);   // daylight falls in from above, outside
+    vec3 side=paint*mix(.55,.86,lit)*daylight;
+    side*=.985+.03*grain;
+
+    // ---- the front face of the frame
+    float wood=-front;                       // distance into the wood from its inner edge
+    // A rounded bevel along the inner edge catches the daylight; the flat face gets the room's light,
+    // brighter at the top of the window, with soft occlusion in the corners.
+    float bevel=1.0-smoothstep(0.0,.009,wood);
+    float face=mix(.84,.93,uv.y);
+    vec3 frame=paint*face*(.985+.03*grain);
+    frame=mix(frame,paint*daylight*1.04,bevel*.85);
+    frame*=1.0-.12*smoothstep(.0,.04,wood)*(1.0-smoothstep(.04,.12,wood));
+    // The outer edge of the screen reads as the wall's reveal: a shade deeper toward the borders.
+    vec2 hs=vec2(u_aspect*.5,.5);
+    float border=min(hs.x-abs(q.x),hs.y-abs(q.y));
+    frame*=mix(.86,1.0,smoothstep(0.0,fw*.6,border));
+    {
+        // A crisp highlight on the bevel crest, moving with the tilt.
+        float crest=exp(-pow((wood-.004)/.0022,2.0));
+        frame+=vec3(1.0,.99,.96)*crest*.10*(.5+.5*clamp(dot(n,normalize(-tilt+vec2(.2,.8))),0.0,1.0));
     }
-    // The moulding throws a soft shadow onto the wall, away from the light.
-    float wallSdf=sdf0-mouldW;
-    float shade=windowBox(p+light2*.03,hs,radius)-mouldW;
-    wall*=1.0-.45*exp(-max(wallSdf,0.0)*28.0)*(.5+.5*smoothstep(.03,-.01,shade));
-    vec3 frame=mix(moulding,wall,smoothstep(-aa,aa,wallSdf));
 
-    // ---- inside the opening: march the ray back until it either hits a wall or the photo plane
-    vec2 back=p+view*depth;
-    float sdfBack=windowBox(back,hs,radius);
-    // Convex opening: if the far end is inside, the whole ray is. Otherwise bisect for the wall hit.
-    float lo=0.0,hi=depth;
-    for(int i=0;i<7;i++){
-        float mid=(lo+hi)*.5;
-        if(windowBox(p+view*mid,hs,radius)>0.0)hi=mid;else lo=mid;
-    }
-    float zHit=hi;
-    vec2 hitP=p+view*zHit;
-    vec2 wn=windowNormal(hitP,hs,radius);
-    float zf=zHit/depth;
-    // Wall facing: walls whose inward normal faces the light are lit.
-    float facing=clamp(dot(-wn,light2)*.6+.5,0.0,1.0);
-    vec3 recess=material*(.35+.85*facing);
-    // Darker the deeper; a soft crease where the wall meets the photo plane.
-    recess*=mix(1.0,.45,zf)*(1.0-.35*smoothstep(.85,1.0,zf));
-
-    // Photo at the back: fills the opening with a little slack for parallax.
-    vec2 puv=back/(2.0*hs)*.9+.5;
-    vec3 pic=photo(puv,0.0);
-    // Ambient occlusion along the back edge and the shadow the opening casts from the light.
-    float inner=-sdfBack;
-    pic*=mix(.5,1.0,smoothstep(0.0,.07,inner));
-    float shadowEdge=-windowBox(back-light2*depth*.45,hs,radius);
-    pic*=mix(.62,1.0,smoothstep(-.01,.03,shadowEdge));
-
-    float seePhoto=1.0-smoothstep(-aa*1.5,aa*1.5,sdfBack);
-    vec3 inside=mix(recess,pic,seePhoto);
-
-    float open=1.0-smoothstep(-aa,aa,sdf0);
-    return mix(frame,inside,open);
+    // Compose: front face where the wood is, then the inner side where the ray hits the frame's back edge,
+    // else the glass.
+    float isFront=smoothstep(aa,-aa,front);
+    float isSide=smoothstep(aa,-aa,back)*(1.0-isFront);
+    vec3 col=glass;
+    col=mix(col,side,isSide);
+    col=mix(col,frame,isFront);
+    return col;
 }
